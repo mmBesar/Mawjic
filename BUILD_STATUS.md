@@ -84,3 +84,10 @@ These changes have received static review only in this environment. Run hosted R
 - The shared Compose source calls `ImageLoader.Builder.crossfade(true)`. Coil 3.5.0 exposes `crossfade` as an extension in `coil3.request`; the missing import caused the Kotlin compile failure. `App.kt` now imports `coil3.request.crossfade`.
 - The source-sanity check previously required the Rust XMLTV parser to contain the exact text `"image" => if let Some(p)`, making it sensitive to harmless formatting/refactoring. It now verifies the `<sub-title>` and `<episode-num>` handling, while existing common tests cover XMLTV programme artwork and `<image>` fallback.
 - These corrections are awaiting the next GitHub Actions run. No new Kotlin compile or test pass is claimed by this updater.
+
+
+## Follow-up: XMLTV offset test correction
+
+- CI failure `nativeXmltvParserNormalizesExplicitOffsetsAndArtwork` was caused by the test calling `guide.programmes.single()` after explicitly asserting that the parser returned two programmes. Kotlin correctly throws `IllegalArgumentException` when `single()` sees two elements; this was a test bug, not evidence of an XMLTV parser defect.
+- The test now verifies both UTC start timestamps independently: 01:00 +0200 -> 2023-12-31 23:00 UTC (1704063600), and 02:00 +0200 -> 2024-01-01 00:00 UTC (1704067200). It also retains the channel-logo and both programme-artwork assertions.
+- This correction has been source-checked locally but still requires `:composeApp:desktopTest` on GitHub Actions. Linux jobs and the Android job invoke the shared desktop test task, so a failure there marks all three jobs failed even when packaging/APK compilation itself has progressed.

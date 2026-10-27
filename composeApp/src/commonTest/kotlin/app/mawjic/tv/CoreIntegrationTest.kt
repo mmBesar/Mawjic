@@ -32,7 +32,8 @@ https://example.test/kids.m3u8
         val guide = PlatformBridge.parseGuideJson(Platform.parseXmltv(input))
         assertEquals("https://example.test/channel.png", guide.channelLogos["news"])
         assertEquals(2, guide.programmes.size)
-        assertEquals(1704063600L, guide.programmes.single().start)
+        assertEquals(1704063600L, guide.programmes[0].start)
+        assertEquals(1704067200L, guide.programmes[1].start)
         assertEquals("https://example.test/programme.jpg", guide.programmes.first().image)
         assertEquals("https://example.test/poster-only.jpg", guide.programmes[1].image)
     }
