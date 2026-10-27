@@ -83,9 +83,9 @@ kotlin {
             implementation("org.jetbrains.compose.components:components-resources:1.10.3")
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-            implementation("io.coil-kt.coil3:coil-compose:3.6.3")
-            implementation("io.coil-kt.coil3:coil-network-ktor3:3.6.3")
-            implementation("io.coil-kt.coil3:coil-svg:3.6.3")
+            implementation("io.coil-kt.coil3:coil-compose:3.5.0")
+            implementation("io.coil-kt.coil3:coil-network-ktor3:3.5.0")
+            implementation("io.coil-kt.coil3:coil-svg:3.5.0")
         }
         androidMain.dependencies {
             implementation("androidx.activity:activity-compose:1.12.4")

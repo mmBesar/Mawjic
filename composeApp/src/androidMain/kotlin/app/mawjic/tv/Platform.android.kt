@@ -36,8 +36,8 @@ actual fun SystemBarsEffect(backgroundArgb: Long, useDarkIcons: Boolean) {
         var context = view.context
         while (context is ContextWrapper && context !is Activity) context = context.baseContext
         val window = (context as? Activity)?.window ?: return@SideEffect
-        window.statusBarColor = Color(backgroundArgb.toULong()).toArgb()
-        window.navigationBarColor = Color(backgroundArgb.toULong()).toArgb()
+        window.statusBarColor = Color(backgroundArgb.toInt()).toArgb()
+        window.navigationBarColor = Color(backgroundArgb.toInt()).toArgb()
         val controller = WindowCompat.getInsetsController(window, view)
         controller.isAppearanceLightStatusBars = useDarkIcons
         controller.isAppearanceLightNavigationBars = useDarkIcons
@@ -95,7 +95,7 @@ actual object Platform {
     actual fun colorsFromSystem(dark: Boolean): PlatformColors? {
         if (Build.VERSION.SDK_INT < 31 || !::appContext.isInitialized) return null
         val scheme = if (dark) dynamicDarkColorScheme(appContext) else dynamicLightColorScheme(appContext)
-        fun value(color: androidx.compose.ui.graphics.Color): Long = color.value.toLong()
+        fun value(color: androidx.compose.ui.graphics.Color): Long = color.toArgb().toLong()
         return PlatformColors(value(scheme.primary), value(scheme.secondary), value(scheme.background), value(scheme.surface), value(scheme.surfaceVariant), value(scheme.onPrimary), value(scheme.onBackground), value(scheme.onSurface), value(scheme.outline))
     }
     actual fun nowEpochSeconds(): Long = System.currentTimeMillis() / 1000L

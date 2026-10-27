@@ -91,6 +91,20 @@ https://example.test/kids.m3u8
     }
 
     @Test
+    fun argbColourFactoriesProduceFiniteSrgbComponents() {
+        val pink = colorFromHex("#F5C2E7")
+        assertTrue(pink.red.isFinite() && pink.green.isFinite() && pink.blue.isFinite() && pink.alpha.isFinite())
+        assertEquals(245f / 255f, pink.red, 0.005f)
+        assertEquals(194f / 255f, pink.green, 0.005f)
+        assertEquals(231f / 255f, pink.blue, 0.005f)
+        val black = colorFromArgb(0xFF000000L)
+        assertEquals(0f, black.red)
+        assertEquals(0f, black.green)
+        assertEquals(0f, black.blue)
+        assertEquals(1f, black.alpha)
+    }
+
+    @Test
     fun epgIndexMatchesByIdThenNormalizedChannelNameAndFindsCurrentNext() {
         val guide = GuideData(
             channelLogos = mapOf("news.xmltv" to "https://guide.test/logo.png"),

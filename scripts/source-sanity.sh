@@ -38,6 +38,14 @@ build = (root / 'composeApp/build.gradle.kts').read_text(encoding='utf-8')
 assert 'namespace = "app.mawjic.tv"' in build
 assert 'applicationId = "app.mawjic.tv"' in build
 assert 'activity-compose:1.12.4' in build
+assert 'coil-compose:3.5.0' in build and 'coil-network-ktor3:3.5.0' in build and 'coil-svg:3.5.0' in build
+theme = (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/Theme.kt').read_text(encoding='utf-8')
+app = (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/App.kt').read_text(encoding='utf-8')
+android_platform = (root / 'composeApp/src/androidMain/kotlin/app/mawjic/tv/Platform.android.kt').read_text(encoding='utf-8')
+assert 'Color(value.toULong())' not in theme, 'ARGB values must not be passed to Compose packed-Color constructor'
+assert 'hex.removePrefix("#").toLong(16)).toULong()' not in theme + app, 'ARGB hex values must use Color(Int) conversion'
+assert 'colorScheme.background.toArgb().toLong()' in app
+assert 'color.toArgb().toLong()' in android_platform
 for deprecated_alias in ('implementation(compose.runtime)', 'implementation(compose.foundation)', 'implementation(compose.material3)', 'implementation(compose.ui)', 'implementation(compose.components.resources)'):
     assert deprecated_alias not in build, f'deprecated Compose alias remains: {deprecated_alias}'
 assert 'TargetFormat.Rpm' in build

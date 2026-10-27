@@ -73,11 +73,22 @@ internal fun relativeLuminance(hex: String): Double {
 
 internal fun primaryForegroundHex(hex: String): String = if (relativeLuminance(hex) > 0.179) "#000000" else "#FFFFFF"
 
-private fun color(hex: String): Color = Color((0xFF000000L or hex.removePrefix("#").toLong(16)).toULong())
-private fun platformColor(value: Long): Color = Color(value.toULong())
+// Compose Color(ULong) is its packed internal representation, not 0xAARRGGBB.
+// Use Color(Int) for ARGB and keep PlatformColors normalized to ARGB across platforms.
+internal fun colorFromArgb(argb: Long): Color = Color(argb.toInt())
+
+internal fun colorFromHex(hex: String): Color =
+    colorFromArgb(0xFF000000L or hex.removePrefix("#").toLong(16))
+
+private fun color(hex: String): Color = colorFromHex(hex)
+private fun platformColor(value: Long): Color = colorFromArgb(value)
 
 private fun contrastingText(background: Color): Color {
-    fun channel(component: Float): String = (component * 255).roundToInt().coerceIn(0, 255).toString(16).padStart(2, '0').uppercase()
+    fun channel(component: Float): String {
+        // Avoid a crash if a malformed external colour ever reaches this boundary.
+        val safe = if (component.isFinite()) component.coerceIn(0f, 1f) else 0f
+        return (safe * 255).roundToInt().coerceIn(0, 255).toString(16).padStart(2, '0').uppercase()
+    }
     val hex = "#${channel(background.red)}${channel(background.green)}${channel(background.blue)}"
     return if (primaryForegroundHex(hex) == "#000000") Color.Black else Color.White
 }

@@ -57,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -90,7 +91,7 @@ fun MawjicApp() {
             LocalAppLanguage provides settings.language,
             LocalLayoutDirection provides (if (settings.language == "Arabic") LayoutDirection.Rtl else LayoutDirection.Ltr),
         ) {
-            SystemBarsEffect(colorScheme.background.value.toLong(), useDarkSystemIcons)
+            SystemBarsEffect(colorScheme.background.toArgb().toLong(), useDarkSystemIcons)
             MainScreen(settings, onSettings = { settings = it.also(AppSettings::save) })
         }
     }
@@ -537,7 +538,7 @@ private fun SettingsChoices(settings: AppSettings, onSettings: (AppSettings) -> 
 
 private fun colorForAccent(flavour: String, index: Int): Color {
     val hex = catppuccinAccentHex(flavour, accents.getOrElse(index) { "Mauve" })
-    return Color((0xFF000000L or hex.removePrefix("#").toLong(16)).toULong())
+    return colorFromHex(hex)
 }
 
 @Composable
