@@ -7,13 +7,22 @@ import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -28,13 +37,26 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import kotlinx.coroutines.delay
+import java.util.concurrent.atomic.AtomicReference
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -47,10 +69,14 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TrackSelectionDialogBuilder
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 actual fun PlaybackPane(
     url: String,
     channelName: String,
+    channelLogo: String,
+    currentProgrammeTitle: String,
+    currentProgrammeSubtitle: String,
     previousChannel: Channel?,
     nextChannel: Channel?,
     onChannelSelected: (Channel) -> Unit,
@@ -58,6 +84,7 @@ actual fun PlaybackPane(
     preferredExternalPlayer: String,
 ) {
     val context = LocalContext.current
+    var channelLogoFailed by remember(channelLogo) { mutableStateOf(false) }
     var selectedExternalPlayer by remember(url, preferredExternalPlayer) { mutableStateOf(preferredExternalPlayer) }
     var useInAppFallback by remember(url, preferredExternalPlayer) { mutableStateOf(preferredExternalPlayer == "In-app") }
     var externalLaunchError by remember(url, preferredExternalPlayer) { mutableStateOf("") }
@@ -145,6 +172,16 @@ actual fun PlaybackPane(
             setHandleAudioBecomingNoisy(true)
         }
     }
+    var showOsd by remember(url) { mutableStateOf(true) }
+    var isFullscreen by remember(url) { mutableStateOf(false) }
+    var playbackIsPlaying by remember(url) { mutableStateOf(false) }
+    var osdRevision by remember(url) { mutableIntStateOf(0) }
+    val playerViewRef = remember(player) { AtomicReference<PlayerView?>(null) }
+    fun revealOsd() {
+        showOsd = true
+        osdRevision++
+    }
+
     DisposableEffect(player, url) {
         val lowerUrl = url.substringBefore('?').lowercase()
         val mimeType = when {
@@ -165,6 +202,8 @@ actual fun PlaybackPane(
                     ?.replace(Regex("https?://\\S+"), "[stream URL]")
                     ?.take(140)
                 lastError = if (causeText == null) error.errorCodeName else "${error.errorCodeName}: $causeText"
+                showOsd = true
+                osdRevision++
 
                 // Many IPTV servers use extensionless /live/UUID endpoints for HLS.
                 // Media3 otherwise treats them as progressive files. On the first
@@ -189,41 +228,168 @@ actual fun PlaybackPane(
                 }
             }
             override fun onPlaybackStateChanged(playbackState: Int) { if (playbackState == Player.STATE_READY) lastError = "" }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                playbackIsPlaying = isPlaying
+                playerViewRef.get()?.keepScreenOn = isPlaying
+                if (isPlaying) revealOsd()
+            }
         }
         // Attach before prepare so initial DNS/HTTP/decoder errors cannot be missed.
         player.addListener(listener)
         player.setMediaItem(mediaItem())
         player.prepare()
-        onDispose { retryHandler.removeCallbacksAndMessages(null); player.removeListener(listener); player.release() }
+        onDispose {
+            retryHandler.removeCallbacksAndMessages(null)
+            player.removeListener(listener)
+            playerViewRef.getAndSet(null)?.keepScreenOn = false
+            playbackIsPlaying = false
+            player.release()
+        }
     }
-    BackHandler(onBack = onClose)
+    LaunchedEffect(showOsd, osdRevision, playbackIsPlaying, lastError) {
+        // Keep controls available while paused or diagnosing an error. During active
+        // playback, hide Mawjic's OSD after five seconds of inactivity.
+        if (showOsd && playbackIsPlaying && lastError.isBlank()) {
+            delay(5_000)
+            showOsd = false
+        }
+    }
+
+    BackHandler(onBack = {
+        if (isFullscreen) {
+            isFullscreen = false
+            revealOsd()
+        } else {
+            onClose()
+        }
+    })
+
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        val dialogView = LocalView.current
+        val dialogWindow = (dialogView.parent as? DialogWindowProvider)?.window
+        LaunchedEffect(dialogWindow, isFullscreen) {
+            dialogWindow?.let { window ->
+                val bars = WindowInsetsControllerCompat(window, window.decorView)
+                bars.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                if (isFullscreen) bars.hide(WindowInsetsCompat.Type.systemBars())
+                else bars.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        DisposableEffect(dialogWindow) {
+            onDispose {
+                dialogWindow?.let { window ->
+                    WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
+                }
+            }
+        }
+
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             AndroidView(
-                factory = { viewContext -> PlayerView(viewContext).apply { this.player = player; useController = true; setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING) } },
-                update = { if (it.player !== player) it.player = player },
+                factory = { viewContext ->
+                    PlayerView(viewContext).apply {
+                        this.player = player
+                        playerViewRef.set(this)
+                        useController = true
+                        setControllerShowTimeoutMs(5_000)
+                        setControllerHideOnTouch(true)
+                        keepScreenOn = player.isPlaying
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                    }
+                },
+                update = {
+                    if (it.player !== player) it.player = player
+                    it.keepScreenOn = player.isPlaying
+                    playerViewRef.set(it)
+                },
+                onRelease = { view ->
+                    view.keepScreenOn = false
+                    view.player = null
+                    playerViewRef.compareAndSet(view, null)
+                },
                 modifier = Modifier.fillMaxSize(),
             )
-            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(channelName, color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                    TextButton(onClick = onClose) { Text("Close ✕", color = Color.White) }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { previousChannel?.let(onChannelSelected) }, enabled = previousChannel != null) { Text("← Previous") }
-                    OutlinedButton(onClick = { nextChannel?.let(onChannelSelected) }, enabled = nextChannel != null) { Text("Next →") }
-                    TextButton(onClick = { TrackSelectionDialogBuilder(context, "Audio track", player, C.TRACK_TYPE_AUDIO).build().show() }) { Text("Audio", color = Color.White) }
-                    TextButton(onClick = { TrackSelectionDialogBuilder(context, "Subtitles", player, C.TRACK_TYPE_TEXT).build().show() }) { Text("CC", color = Color.White) }
-                }
-                if (lastError.isNotBlank()) {
-                    Text("Playback error: $lastError · retry $retryCount/3", color = Color.White)
-                    if (preferredExternalPlayer != "In-app") {
-                        OutlinedButton(onClick = { selectedExternalPlayer = preferredExternalPlayer; useInAppFallback = false; externalLaunchError = "" }) {
-                            Text(tr("Retry with preferred external player"), color = Color.White)
+
+            // The transparent surface restores Mawjic's controls with a tap once the
+            // OSD has hidden; it leaves the native Media3 controller available while shown.
+            if (!showOsd) {
+                Box(
+                    Modifier.fillMaxSize().clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) {
+                        revealOsd()
+                        playerViewRef.get()?.showController()
+                    },
+                )
+            }
+
+            if (showOsd) {
+                Column(
+                    Modifier.align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .background(Color.Black.copy(alpha = .72f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Box(
+                            Modifier.size(42.dp).clip(RoundedCornerShape(8.dp))
+                                .background(Color.White.copy(alpha = .12f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (channelLogo.isNotBlank() && !channelLogoFailed) {
+                                AsyncImage(
+                                    model = channelLogo,
+                                    contentDescription = "$channelName logo",
+                                    modifier = Modifier.fillMaxSize().padding(4.dp),
+                                    contentScale = ContentScale.Fit,
+                                    onState = { state -> if (state is AsyncImagePainter.State.Error) channelLogoFailed = true },
+                                )
+                            } else {
+                                Text(channelName.take(1).ifBlank { "TV" }, color = Color.White, fontWeight = FontWeight.Bold)
+                            }
                         }
-                    } else {
-                        OutlinedButton(onClick = { selectedExternalPlayer = "VLC"; useInAppFallback = false; externalLaunchError = "" }) { Text("VLC", color = Color.White) }
-                        OutlinedButton(onClick = { selectedExternalPlayer = "MPV"; useInAppFallback = false; externalLaunchError = "" }) { Text("MPV", color = Color.White) }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(channelName, color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (currentProgrammeTitle.isNotBlank()) {
+                                Text(currentProgrammeTitle, color = Color.White.copy(alpha = .92f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            if (currentProgrammeSubtitle.isNotBlank()) {
+                                Text(currentProgrammeSubtitle, color = Color.White.copy(alpha = .76f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        TextButton(onClick = { isFullscreen = !isFullscreen; revealOsd() }) {
+                            Text(tr(if (isFullscreen) "Exit fullscreen" else "Fullscreen"), color = Color.White, maxLines = 1)
+                        }
+                        TextButton(onClick = onClose) { Text("✕", color = Color.White) }
+                    }
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(0.dp),
+                    ) {
+                        TextButton(onClick = { revealOsd(); previousChannel?.let(onChannelSelected) }, enabled = previousChannel != null) { Text("← ${tr("Previous")}", color = Color.White) }
+                        TextButton(onClick = { revealOsd(); nextChannel?.let(onChannelSelected) }, enabled = nextChannel != null) { Text("${tr("Next")} →", color = Color.White) }
+                        TextButton(onClick = { revealOsd(); TrackSelectionDialogBuilder(context, tr("Audio"), player, C.TRACK_TYPE_AUDIO).build().show() }) { Text(tr("Audio"), color = Color.White) }
+                        TextButton(onClick = { revealOsd(); TrackSelectionDialogBuilder(context, tr("Subtitles"), player, C.TRACK_TYPE_TEXT).build().show() }) { Text("CC", color = Color.White) }
+                    }
+                    if (lastError.isNotBlank()) {
+                        Text("Playback error: $lastError · retry $retryCount/3", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (preferredExternalPlayer != "In-app") {
+                                OutlinedButton(onClick = { selectedExternalPlayer = preferredExternalPlayer; useInAppFallback = false; externalLaunchError = "" }) {
+                                    Text(tr("Retry with preferred external player"), color = Color.White)
+                                }
+                            } else {
+                                OutlinedButton(onClick = { selectedExternalPlayer = "VLC"; useInAppFallback = false; externalLaunchError = "" }) { Text("VLC", color = Color.White) }
+                                OutlinedButton(onClick = { selectedExternalPlayer = "MPV"; useInAppFallback = false; externalLaunchError = "" }) { Text("MPV", color = Color.White) }
+                            }
+                        }
                     }
                 }
             }

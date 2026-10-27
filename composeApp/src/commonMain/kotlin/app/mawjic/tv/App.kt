@@ -402,8 +402,13 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
     selectedProgramme?.let { ProgrammeDialog(it) { selectedProgramme = null } }
     selectedChannel?.let { channel ->
         val channelIndex = channels.indexOfFirst { it.url == channel.url }
+        val currentProgramme = current(channel)
         PlaybackPane(
-            url = channel.url, channelName = channel.name,
+            url = channel.url,
+            channelName = channel.name,
+            channelLogo = ArtworkResolver.resolve(channel, guide.channelLogos, ArtworkResolver.mappings(), guide.channelNames),
+            currentProgrammeTitle = currentProgramme?.title.orEmpty(),
+            currentProgrammeSubtitle = currentProgramme?.subtitle.orEmpty(),
             previousChannel = channels.getOrNull(channelIndex - 1),
             nextChannel = channels.getOrNull(channelIndex + 1),
             onChannelSelected = { selectedChannel = it },
@@ -802,6 +807,9 @@ expect fun formatTime(epoch: Long): String
 expect @Composable fun PlaybackPane(
     url: String,
     channelName: String,
+    channelLogo: String,
+    currentProgrammeTitle: String,
+    currentProgrammeSubtitle: String,
     previousChannel: Channel?,
     nextChannel: Channel?,
     onChannelSelected: (Channel) -> Unit,

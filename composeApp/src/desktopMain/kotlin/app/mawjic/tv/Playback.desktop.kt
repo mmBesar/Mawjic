@@ -37,6 +37,9 @@ import java.util.concurrent.TimeUnit
 actual fun PlaybackPane(
     url: String,
     channelName: String,
+    channelLogo: String,
+    currentProgrammeTitle: String,
+    currentProgrammeSubtitle: String,
     previousChannel: Channel?,
     nextChannel: Channel?,
     onChannelSelected: (Channel) -> Unit,

@@ -69,6 +69,17 @@ assert '"sub-title"' in rust and '"episode-num"' in rust, \
     "XMLTV subtitle and episode-number parsing must remain present"
 assert 'LaunchedEffect(url, selectedExternalPlayer, useInAppFallback)' in android_player
 assert '"org.videolan.vlc"' in android_player and '"is.xyz.mpv"' in android_player
+# Regression guards for Android player wiring. These are static contract checks;
+# hosted compilation and manual device playback remain required.
+assert 'channelLogo: String' in android_player and 'currentProgrammeSubtitle: String' in android_player
+assert 'setControllerShowTimeoutMs(5_000)' in android_player
+assert 'WindowInsetsControllerCompat' in android_player and 'WindowInsetsCompat.Type.systemBars()' in android_player
+assert 'keepScreenOn = player.isPlaying' in android_player and 'playerViewRef.getAndSet(null)?.keepScreenOn = false' in android_player
+assert 'override fun onIsPlayingChanged(isPlaying: Boolean)' in android_player
+assert 'if (!showOsd)' in android_player and 'delay(5_000)' in android_player
+assert 'playerViewRef.get()?.showController()' in android_player, 'Revealing a hidden OSD must also show Media3 controls'
+assert 'currentProgrammeTitle = currentProgramme?.title.orEmpty()' in app
+assert 'currentProgrammeSubtitle = currentProgramme?.subtitle.orEmpty()' in app
 listener_at = android_player.index('player.addListener(listener)')
 initial_item_at = android_player.index('player.setMediaItem(mediaItem())')
 initial_prepare_at = android_player.index('player.prepare()', initial_item_at)

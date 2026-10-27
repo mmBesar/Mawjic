@@ -1,12 +1,12 @@
 # Mawjic build status
 
-**Status: maintainer-reported baseline CI passed; this usability follow-up is not yet verified.** The authoring environment cannot run Cargo/Rust, Gradle, Android SDK/NDK, RPM, or AppImage builds. Distinguish the previously passing hosted build from this new source update; the changes below require a new CI run and manual AppImage/phone validation.
+**Base revision `4a085312886534d79d0f18380e377b7aecf5558e`: GitHub Actions CI run #6 passed on 2026-10-27.** The attached source archive matches that revision. This player-OSD source update is not part of the passing run until applied and tested in a new workflow run. This authoring environment has Java installed but no Gradle, Cargo, or Rust compiler; Android UI/device behavior cannot be verified here. Keep base-CI evidence distinct from checks performed on this update.
 
 ## Confirmed failures from the previous repository's GitHub Actions logs
 
 - RustSec's `audit-check` looked for `./Cargo.lock`, but Mawjic's lockfile is `rust-core/Cargo.lock`. The clean workflow installs pinned `cargo-audit` and runs `cargo audit --file rust-core/Cargo.lock` from repository root.
 - Linux AMD64/ARM64 packaging failed before invoking AppImage because the expected jpackage app directory was absent. The clean workflow explicitly runs `:composeApp:createDistributable` before packaging and has the AppImage script locate/validate a jpackage app under `build/compose/binaries/main/app` with a diagnostic directory listing if missing.
-- Android dependency metadata reported that `androidx.compose.runtime:runtime-saveable-android:1.12.0` required AGP 9.1.0 while the project uses AGP 8.11.1. The clean baseline pins Compose Multiplatform 1.10.3 (Jetpack Compose 1.10.5 / Lifecycle 2.10.0 per JetBrains release documentation), stable Compose Material 3 1.9.0, and AndroidX Activity Compose 1.12.4. Coil 3.6.3 was updated upstream to Compose 1.12.0 and Android compile SDK 37; its modules are now downgraded to 3.5.0, whose upstream release notes specify Compose 1.11.1 and compile SDK 36. Compose runtime/foundation/UI/resources use explicit coordinates instead of deprecated aliases. The selected Kotlin 2.4.21 / AGP 8.11.1 / CMP 1.10.3 + Coil 3.5.0 combination still requires hosted Gradle verification.
+- Android dependency metadata reported that `androidx.compose.runtime:runtime-saveable-android:1.12.0` required AGP 9.1.0 while the project uses AGP 8.11.1. The clean baseline pins Compose Multiplatform 1.10.3 (Jetpack Compose 1.10.5 / Lifecycle 2.10.0 per JetBrains release documentation), stable Compose Material 3 1.9.0, and AndroidX Activity Compose 1.12.4. Coil 3.6.3 was updated upstream to Compose 1.12.0 and Android compile SDK 37; its modules are now downgraded to 3.5.0, whose upstream release notes specify Compose 1.11.1 and compile SDK 36. Compose runtime/foundation/UI/resources use explicit coordinates instead of deprecated aliases. At the time this note was first written, the selected Kotlin 2.4.21 / AGP 8.11.1 / CMP 1.10.3 + Coil 3.5.0 combination still required hosted verification; base CI run #6 later passed the configured Android build job.
 - `source-sanity.sh` previously scanned the entire workspace after builds and mistook generated `.so` outputs for committed binaries. The clean script checks Git-tracked files in a checkout and has an excluded-build-directory fallback when run from an extracted source archive.
 - Gradle 8.14.3 warned that it is deprecated for future Kotlin Gradle Plugin releases. The clean baseline uses Gradle 8.14.6, with the official binary distribution checksum updated in both bootstrap files.
 - Dependabot PRs were too noisy for this early project. The clean repository has no `dependabot.yml`; see `docs/CI.md` for how to disable security-update PRs in the repository settings if desired.
@@ -29,20 +29,19 @@ Static checks run successfully in this workspace:
 - Gradle version/checksum consistency check and static workflow invariant checks.
 - Archive integrity check after ZIP creation.
 
-The authoring environment cannot run Cargo/Gradle, Android SDK/NDK, RPM or AppImage tooling. The maintainer reported that a prior GitHub Actions run passed Rust format/tests/Clippy/audit, Linux AMD64/ARM64 packages and Android ARM64 compilation. The AppImage was then launched manually and exposed a theme color-conversion crash; the earlier runtime patch corrected that and the maintainer subsequently reported CI passing. The new usability changes in the final section still need fresh hosted CI and manual runtime validation.
+The authoring environment cannot run Cargo/Gradle, Android SDK/NDK, RPM or AppImage tooling. GitHub Actions run #6 later passed the configured Rust, Linux package, and Android debug build/common-test jobs for the base commit. That run does not include the separate Android player-OSD update below. The prior AppImage colour-conversion crash was corrected in shared code, but a fresh packaged-AppImage launch remains unverified.
 
 ## Follow-up: Linux runtime crash and Android dependency (2026-10-27)
 
 - AppImage starts the desktop Compose application; the reported `Theme.kt` stack trace is not Android running inside the AppImage. It is a shared-code colour conversion bug: ARGB integers were passed to Compose's packed `Color(ULong)` constructor, which produced invalid/NaN colour components and crashed foreground-contrast calculation. Colour construction and Android system-bar transfer now use ARGB `Int`/`toArgb()` consistently. A common test checks finite, correct RGB values. This still needs a fresh packaged-app launch test.
-- Android CI's AAR metadata error names `androidx.compose.runtime:runtime-saveable-android:1.12.0`, which requires newer AGP. The dependency culprit is Coil 3.6.3: its official changelog says it updated Compose to 1.12.0 and Android compile SDK to 37. The three Coil modules are now pinned to 3.5.0, whose official changelog says Compose 1.11.1 and compile SDK 36. A new Android build and the dependency insight step must verify that no other dependency still selects 1.12.0.
-- These changes are awaiting GitHub Actions verification; no new green Android build or fixed AppImage launch is claimed yet.
+- Android CI's earlier AAR metadata error named `androidx.compose.runtime:runtime-saveable-android:1.12.0`, selected by Coil 3.6.3. Coil modules were pinned to 3.5.0. The Android ARM64 debug-build job passed in base CI run #6; the workflow's dependency-insight diagnostic is failure-only and therefore was not run separately on that successful build.
+- A fresh packaged-AppImage launch is still not recorded in this status file; the green CI run proves package creation, not desktop runtime behavior.
 
-## Required first GitHub verification
+## Base revision CI evidence and next gate
 
-1. Rust format, tests, Clippy, and Cargo audit must pass.
-2. Linux AMD64 and ARM64 must build desktop tests, `createDistributable`, DEB, RPM, and AppImage; verify architectures and AppImage extraction.
-3. Android ARM64 must build a debug APK with only `lib/arm64-v8a/libmawjic_core.so` and pass common Kotlin tests.
-4. Only after those are green should a signed tag release be considered. Do not create a release tag before Android release signing secrets are configured and CI passes.
+GitHub Actions [run #6](https://github.com/mmBesar/Mawjic/actions/runs/40512040286) passed for base commit `4a085312886534d79d0f18380e377b7aecf5558e` on 2026-10-27. Its configured Rust format/tests/Clippy/audit, Linux AMD64/ARM64 packaging and Android ARM64 debug build/common-test jobs succeeded. The run is evidence for the base commit only; it does not include the player-OSD update in this ZIP.
+
+Before considering the OSD update complete, run the full workflow after applying it. CI needs to compile the revised `PlaybackPane` expect/actual contract and pass the existing common tests plus the new static source-contract checks. Then validate Android fullscreen/system bars, OSD auto-hide and touch-to-show, keep-screen-on release, logos and programme metadata on an actual device. Do not create a release tag before update CI passes and Android release signing secrets are configured.
 
 
 ## Real-device feedback follow-up (2026-10-27)
@@ -56,7 +55,7 @@ Reported by maintainer after Linux and Android artifacts launched:
 - Researched IPTVMine-Pro, IPTVnator, Kodi PVR IPTV Simple, Coil network setup, and Android Network Security Configuration. See `docs/UX_RESEARCH.md`.
 - Reported Gradle 8.14.6 “out-of-date” notices are annotations, not build failures. Keep the currently passing wrapper; Kotlin 2.4.21's fully supported Gradle range ends at 9.7.0, but AGP compatibility must also be checked before moving to Gradle 9.
 
-These changes have received static review only in this environment. Run hosted Rust tests/Clippy, Desktop tests and package checks, and Android APK build after applying; then launch the new AppImage and test HTTP/HTTPS, local/remote XMLTV, logos, external playback, and phone layout. Do not claim runtime verification before those checks pass.
+At the time this historical entry was written, the follow-ups had received static review only. Base CI run #6 subsequently passed the configured build/test/package jobs. Device-level playback, TLS, real-feed XMLTV, Linux remote logos, and layout interactions remain runtime checks and must not be treated as verified from CI alone.
 
 
 ## UX/runtime follow-up from maintainer testing (2026-10-27)
@@ -83,11 +82,26 @@ These changes have received static review only in this environment. Run hosted R
 
 - The shared Compose source calls `ImageLoader.Builder.crossfade(true)`. Coil 3.5.0 exposes `crossfade` as an extension in `coil3.request`; the missing import caused the Kotlin compile failure. `App.kt` now imports `coil3.request.crossfade`.
 - The source-sanity check previously required the Rust XMLTV parser to contain the exact text `"image" => if let Some(p)`, making it sensitive to harmless formatting/refactoring. It now verifies the `<sub-title>` and `<episode-num>` handling, while existing common tests cover XMLTV programme artwork and `<image>` fallback.
-- These corrections are awaiting the next GitHub Actions run. No new Kotlin compile or test pass is claimed by this updater.
+- These corrections are present in base revision `4a085312886534d79d0f18380e377b7aecf5558e`, for which GitHub Actions CI run #6 passed. The OSD changes documented below are a separate update and still require a fresh workflow run.
 
 
 ## Follow-up: XMLTV offset test correction
 
 - CI failure `nativeXmltvParserNormalizesExplicitOffsetsAndArtwork` was caused by the test calling `guide.programmes.single()` after explicitly asserting that the parser returned two programmes. Kotlin correctly throws `IllegalArgumentException` when `single()` sees two elements; this was a test bug, not evidence of an XMLTV parser defect.
 - The test now verifies both UTC start timestamps independently: 01:00 +0200 -> 2023-12-31 23:00 UTC (1704063600), and 02:00 +0200 -> 2024-01-01 00:00 UTC (1704067200). It also retains the channel-logo and both programme-artwork assertions.
-- This correction has been source-checked locally but still requires `:composeApp:desktopTest` on GitHub Actions. Linux jobs and the Android job invoke the shared desktop test task, so a failure there marks all three jobs failed even when packaging/APK compilation itself has progressed.
+- The correction was included in base revision `4a085312886534d79d0f18380e377b7aecf5558e`; GitHub Actions CI run #6 later passed on that revision on 2026-10-27. See the current run linked in the project handoff. This confirms the run's configured tests/build steps, not XMLTV behavior against every real-world feed.
+
+## Android player OSD follow-up (2026-10-27; update ZIP, not yet in CI)
+
+- Added source wiring for channel logo with initial fallback, current programme title/subtitle, auto-hiding Mawjic OSD, fullscreen/system-bar toggle, back-to-windowed behavior, compact wrapping controls, and status-bar insets.
+- Tied `PlayerView.keepScreenOn` to Media3's `onIsPlayingChanged`; clear it when playback stops, the player view is released, or the playback effect is disposed.
+- Retained the existing Media3 player, error listener ordering, bounded HLS retry, track-selection dialogs, external-player fallback, and channel switching path.
+- Added source-sanity regression guards for the player contract. They are static source checks, not Kotlin compilation or runtime tests.
+- **Not yet verified:** Kotlin/Gradle compilation of this ZIP; CI tests; fullscreen/system-bar behavior across Android API levels; OSD hit-testing/autohide in portrait and landscape; screen-awake pause/disposal behavior on a physical device; remote logo fetch/fallback; programme metadata display after channel switching.
+- Required next evidence: run the full GitHub Actions workflow after applying the ZIP. Then test on a phone: play/pause, tap to reveal, 5-second hide during playback, paused/error controls remain visible, fullscreen toggle/back/close restoration, screen sleep after pause/close, portrait/landscape controls, logo failure fallback, and programme title/subtitle changes when switching channels.
+
+
+## Linux artwork diagnostic gate (not fixed by this update)
+
+- The current source already registers Coil 3's Ktor network fetcher in `MawjicApp()` and includes the JVM Ktor engine under `desktopMain`. Do not add a second fetcher or change TLS behavior without runtime evidence.
+- Linux remote logo loading remains unverified. Launch the AppImage from a terminal and capture sanitized `Mawjic artwork failed: host=… error=…` lines for the actual failing host(s). The diagnostic deliberately excludes URL paths/query strings, which may contain credentials. Check provider redirects, status codes, content types and certificate failures from those logs before choosing a fix.
