@@ -78,6 +78,13 @@ assert 'keepScreenOn = player.isPlaying' in android_player and 'playerViewRef.ge
 assert 'override fun onIsPlayingChanged(isPlaying: Boolean)' in android_player
 assert 'if (!showOsd)' in android_player and 'delay(5_000)' in android_player
 assert 'playerViewRef.get()?.showController()' in android_player, 'Revealing a hidden OSD must also show Media3 controls'
+# tr() reads Compose state and is @Composable, so resolve track labels before click callbacks.
+assert 'val audioTrackLabel = tr("Audio")' in android_player
+assert 'val subtitlesTrackLabel = tr("Subtitles")' in android_player
+assert 'TrackSelectionDialogBuilder(context, audioTrackLabel, player, C.TRACK_TYPE_AUDIO)' in android_player
+assert 'TrackSelectionDialogBuilder(context, subtitlesTrackLabel, player, C.TRACK_TYPE_TEXT)' in android_player
+assert 'TrackSelectionDialogBuilder(context, tr("Audio")' not in android_player
+assert 'TrackSelectionDialogBuilder(context, tr("Subtitles")' not in android_player
 assert 'currentProgrammeTitle = currentProgramme?.title.orEmpty()' in app
 assert 'currentProgrammeSubtitle = currentProgramme?.subtitle.orEmpty()' in app
 listener_at = android_player.index('player.addListener(listener)')

@@ -105,3 +105,11 @@ At the time this historical entry was written, the follow-ups had received stati
 
 - The current source already registers Coil 3's Ktor network fetcher in `MawjicApp()` and includes the JVM Ktor engine under `desktopMain`. Do not add a second fetcher or change TLS behavior without runtime evidence.
 - Linux remote logo loading remains unverified. Launch the AppImage from a terminal and capture sanitized `Mawjic artwork failed: host=… error=…` lines for the actual failing host(s). The diagnostic deliberately excludes URL paths/query strings, which may contain credentials. Check provider redirects, status codes, content types and certificate failures from those logs before choosing a fix.
+
+
+## Android Compose callback compile fix (2026-10-27; awaiting CI)
+
+- The first CI build of the Android player OSD update failed during `:composeApp:compileDebugKotlinAndroid`. The reported `@Composable invocations can only happen from the context of a @Composable function` error points to the Audio and Subtitles button handlers in `Playback.android.kt`.
+- Root cause in the source: `tr()` is `@Composable` because it reads `LocalAppLanguage.current`, but it was called from ordinary `TextButton.onClick` callbacks when constructing `TrackSelectionDialogBuilder`. The dialog builder itself is not the problem.
+- Fix: resolve `audioTrackLabel` and `subtitlesTrackLabel` during `PlaybackPane` composition and capture those plain strings in the click callbacks. Add source-sanity regression guards against calling `tr()` inside these track-dialog builder expressions.
+- Static checks and guarded-updater tests are run for this follow-up bundle. **Not yet verified:** Kotlin/Gradle compilation, hosted CI after this fix, or Android runtime behavior. The next CI run is the authority for compilation.

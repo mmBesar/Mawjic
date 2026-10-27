@@ -84,6 +84,9 @@ actual fun PlaybackPane(
     preferredExternalPlayer: String,
 ) {
     val context = LocalContext.current
+    // Resolve composable localisation during composition; click callbacks are not composable.
+    val audioTrackLabel = tr("Audio")
+    val subtitlesTrackLabel = tr("Subtitles")
     var channelLogoFailed by remember(channelLogo) { mutableStateOf(false) }
     var selectedExternalPlayer by remember(url, preferredExternalPlayer) { mutableStateOf(preferredExternalPlayer) }
     var useInAppFallback by remember(url, preferredExternalPlayer) { mutableStateOf(preferredExternalPlayer == "In-app") }
@@ -375,8 +378,8 @@ actual fun PlaybackPane(
                     ) {
                         TextButton(onClick = { revealOsd(); previousChannel?.let(onChannelSelected) }, enabled = previousChannel != null) { Text("← ${tr("Previous")}", color = Color.White) }
                         TextButton(onClick = { revealOsd(); nextChannel?.let(onChannelSelected) }, enabled = nextChannel != null) { Text("${tr("Next")} →", color = Color.White) }
-                        TextButton(onClick = { revealOsd(); TrackSelectionDialogBuilder(context, tr("Audio"), player, C.TRACK_TYPE_AUDIO).build().show() }) { Text(tr("Audio"), color = Color.White) }
-                        TextButton(onClick = { revealOsd(); TrackSelectionDialogBuilder(context, tr("Subtitles"), player, C.TRACK_TYPE_TEXT).build().show() }) { Text("CC", color = Color.White) }
+                        TextButton(onClick = { revealOsd(); TrackSelectionDialogBuilder(context, audioTrackLabel, player, C.TRACK_TYPE_AUDIO).build().show() }) { Text(audioTrackLabel, color = Color.White) }
+                        TextButton(onClick = { revealOsd(); TrackSelectionDialogBuilder(context, subtitlesTrackLabel, player, C.TRACK_TYPE_TEXT).build().show() }) { Text("CC", color = Color.White) }
                     }
                     if (lastError.isNotBlank()) {
                         Text("Playback error: $lastError · retry $retryCount/3", color = Color.White, style = MaterialTheme.typography.bodySmall)
