@@ -53,6 +53,7 @@ assert 'TargetFormat.Rpm' in build
 assert 'gzip XMLTV' in (root / 'README.md').read_text(encoding='utf-8')
 assert 'Mawjic artwork failed' in app and 'AsyncImagePainter.State.Error' in app
 assert 'setSingletonImageLoaderFactory' in app and 'KtorNetworkFetcherFactory' in app and 'HttpClient()' in app
+assert 'import coil3.request.crossfade' in app, 'Coil crossfade extension import missing'
 assert 'triedHlsFallback' in android_player and 'MimeTypes.APPLICATION_M3U8' in android_player
 manifest = (root / 'composeApp/src/androidMain/AndroidManifest.xml').read_text(encoding='utf-8')
 assert 'org.videolan.vlc' in manifest and 'is.xyz.mpv' in manifest
@@ -64,7 +65,8 @@ models = (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/Models.kt').rea
 rust = (root / 'rust-core/src/lib.rs').read_text(encoding='utf-8')
 android_player = (root / 'composeApp/src/androidMain/kotlin/app/mawjic/tv/Playback.android.kt').read_text(encoding='utf-8')
 assert 'val subtitle: String = ""' in models and 'val episodeNumber: String = ""' in models
-assert '"sub-title"' in rust and '"episode-num"' in rust and '"image" => if let Some(p)' in rust
+assert '"sub-title"' in rust and '"episode-num"' in rust, \
+    "XMLTV subtitle and episode-number parsing must remain present"
 assert 'LaunchedEffect(url, selectedExternalPlayer, useInAppFallback)' in android_player
 assert '"org.videolan.vlc"' in android_player and '"is.xyz.mpv"' in android_player
 listener_at = android_player.index('player.addListener(listener)')

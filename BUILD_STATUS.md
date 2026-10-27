@@ -78,3 +78,9 @@ These changes have received static review only in this environment. Run hosted R
 - Android external playback: persist In-app/VLC/MPV selection, auto-launch the selected installed package, declare VLC/mpv-android package visibility, and retain an in-app fallback if launching fails. Android player/intent handoff needs device validation.
 - Compact UI: keep the 15-second current-time EPG marker, subtitle/episode line on programme cards and details, collapsible compact search and appearance controls, local-time greeting, and platform-filtered colour source settings.
 - Code-audit note: static scripts and source sanity can be checked here, but this environment has no usable Gradle or Cargo toolchain. Hosted CI must compile and run Rust/Kotlin tests; manual device tests must verify Linux logos, Android stream compatibility, MPV/VLC handoff, current-time marker visuals, and self-signed TLS behavior.
+
+## CI follow-up: Coil import and XMLTV sanity assertion (2026-10-27)
+
+- The shared Compose source calls `ImageLoader.Builder.crossfade(true)`. Coil 3.5.0 exposes `crossfade` as an extension in `coil3.request`; the missing import caused the Kotlin compile failure. `App.kt` now imports `coil3.request.crossfade`.
+- The source-sanity check previously required the Rust XMLTV parser to contain the exact text `"image" => if let Some(p)`, making it sensitive to harmless formatting/refactoring. It now verifies the `<sub-title>` and `<episode-num>` handling, while existing common tests cover XMLTV programme artwork and `<image>` fallback.
+- These corrections are awaiting the next GitHub Actions run. No new Kotlin compile or test pass is claimed by this updater.
