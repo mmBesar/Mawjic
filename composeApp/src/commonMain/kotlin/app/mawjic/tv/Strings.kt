@@ -8,6 +8,8 @@ internal val LocalAppLanguage = staticCompositionLocalOf { "English" }
 internal val supportedLanguages = listOf("English", "Arabic")
 
 private val arabic: Map<String, String> = mapOf(
+    "Good morning" to "صباح الخير",
+    "Good afternoon" to "طاب نهارك",
     "Good evening" to "مساء الخير",
     "Your favourites" to "قنواتك المفضلة",
     "What's on now — and what's coming up." to "ما يُعرض الآن وما سيُعرض لاحقًا.",
@@ -22,6 +24,7 @@ private val arabic: Map<String, String> = mapOf(
     "YOUR CHANNELS, IN ONE PLACE" to "قنواتك، في مكان واحد",
     "Streaming, your wave." to "البث على موجتك.",
     "＋  Add source" to "＋ إضافة مصدر",
+    "＋" to "＋",
     "SOURCE STATUS" to "حالة المصدر",
     "Connected" to "متصل",
     "Not connected" to "غير متصل",
@@ -82,6 +85,19 @@ private val arabic: Map<String, String> = mapOf(
     "Programme artwork" to "صورة البرنامج",
     "No programme description was provided by the guide." to "لم يقدّم الدليل وصفًا لهذا البرنامج.",
     "Close" to "إغلاق",
+    "Appearance settings" to "إعدادات المظهر",
+    "Show colour options" to "إظهار خيارات الألوان",
+    "Hide colour options" to "إخفاء خيارات الألوان",
+    "Preferred Android player" to "مشغل Android المفضل",
+    "In-app" to "المشغل الداخلي",
+    "Use in-app player" to "استخدم المشغل الداخلي",
+    "MPV" to "MPV",
+    "VLC" to "VLC",
+    "Opening channel in preferred external player…" to "جارٍ فتح القناة في المشغل الخارجي المفضل…",
+    "Retry with preferred external player" to "إعادة المحاولة بالمشغل الخارجي المفضل",
+    "Episode" to "الحلقة",
+    "Choose an installed player; selecting a channel opens it directly." to "اختر مشغلاً مثبتًا؛ سيؤدي اختيار القناة إلى فتحها مباشرةً فيه.",
+    "Playback & network" to "التشغيل والشبكة",
 )
 
 @Composable

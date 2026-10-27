@@ -36,6 +36,7 @@ import androidx.compose.material3.Divider
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -68,8 +69,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.platform.LocalLayoutDirection
+import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
+import coil3.compose.setSingletonImageLoaderFactory
+import coil3.network.ktor3.KtorNetworkFetcherFactory
+import io.ktor.client.HttpClient
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -80,6 +85,16 @@ private enum class Page(val label: String, val glyph: String) {
 
 @Composable
 fun MawjicApp() {
+    // Coil 3 intentionally has no default network fetcher. Register Ktor explicitly
+    // at the root composable so the same loader works with the JVM and Android engines.
+    setSingletonImageLoaderFactory { context ->
+        ImageLoader.Builder(context)
+            .components {
+                add(KtorNetworkFetcherFactory(httpClient = { HttpClient() }))
+            }
+            .crossfade(true)
+            .build()
+    }
     var settings by remember { mutableStateOf(AppSettings.load()) }
     var systemTick by remember { mutableIntStateOf(0) }
     LaunchedEffect(settings.appearance, settings.accentSource) {
@@ -109,6 +124,7 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
     var channels by remember { mutableStateOf<List<Channel>>(emptyList()) }
     var guide by remember { mutableStateOf(GuideData(emptyMap(), emptyMap(), emptyList())) }
     var query by remember { mutableStateOf("") }
+    var searchExpanded by remember { mutableStateOf(false) }
     var group by remember { mutableStateOf("All channels") }
     var showSources by remember { mutableStateOf(false) }
     var selectedProgramme by remember { mutableStateOf<Programme?>(null) }
@@ -117,6 +133,13 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
     var sourceReloadVersion by remember { mutableIntStateOf(0) }
     var status by remember(settings.language) { mutableStateOf(if (settings.language == "Arabic") "أضف قائمة تشغيل M3U لبدء المشاهدة." else "Add an M3U playlist to start watching.") }
     val groups = remember(channels) { listOf("All channels") + channels.map(Channel::group).filter(String::isNotBlank).distinct().sorted() }
+    var clockEpoch by remember { mutableStateOf(Platform.nowEpochSeconds()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15_000)
+            clockEpoch = Platform.nowEpochSeconds()
+        }
+    }
 
     suspend fun loadSources(playlistSource: String, guideSource: String) {
         if (playlistSource.isBlank()) {
@@ -165,7 +188,13 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
         if (settings.playlistSource.isNotBlank()) loadSources(settings.playlistSource, settings.guideSource)
     }
 
-    val now = Platform.nowEpochSeconds()
+    val now = clockEpoch
+    val hour = formatTime(now).substringBefore(":").toIntOrNull() ?: 12
+    val liveGreeting = when {
+        hour < 12 -> "Good morning"
+        hour < 17 -> "Good afternoon"
+        else -> "Good evening"
+    }
     val epgIndex = remember(guide.programmes, guide.channelNames) { EpgIndex(guide) }
     fun programmesFor(channel: Channel): List<Programme> = epgIndex.programmesFor(channel)
     fun current(channel: Channel): Programme? = epgIndex.current(channel, now)
@@ -183,13 +212,17 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                         }
                         Column {
                             Text("Mawjic", fontWeight = FontWeight.Bold)
-                            Text(tr("Streaming, your wave."), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f))
+                            if (!compactLayout) Text(tr("Streaming, your wave."), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f))
                         }
                     }
                 },
                 actions = {
-                    TextButton(onClick = { showSources = true }) { Text(tr("＋  Add source")) }
-                    Spacer(Modifier.width(8.dp))
+                    if (page != Page.SETTINGS) {
+                        TextButton(onClick = { searchExpanded = !searchExpanded; if (!searchExpanded) query = "" }) { Text(if (searchExpanded && compactLayout) "×" else "⌕") }
+                    }
+                    if (!compactLayout) TextButton(onClick = { showSources = true }) { Text(tr("＋  Add source")) }
+                    else TextButton(onClick = { showSources = true }) { Text(tr("＋")) }
+                    Spacer(Modifier.width(4.dp))
                 },
                 scrollBehavior = androidx.compose.material3.TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState()),
             )
@@ -242,17 +275,27 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
             }
             Column(Modifier.weight(1f).fillMaxHeight().padding(start = if (compactLayout) 12.dp else 24.dp, end = if (compactLayout) 12.dp else 24.dp, top = 12.dp, bottom = 12.dp)) {
                 when {
-                    page == Page.SETTINGS -> SettingsPage(settings, onSettings, onDone = { page = Page.LIVE })
+                    page == Page.SETTINGS -> SettingsPage(settings, onSettings, compactLayout, onDone = { page = Page.LIVE })
                     else -> {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(tr(when (page) { Page.GUIDE -> "TV Guide"; Page.FAVOURITES -> "Your favourites"; else -> "Good evening" }), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                                Spacer(Modifier.height(4.dp))
-                                Text(tr(when (page) { Page.GUIDE -> "What's on now — and what's coming up."; Page.FAVOURITES -> "The channels you keep close."; else -> "Live television, without the clutter." }), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .66f))
+                        if (!compactLayout && page != Page.GUIDE) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(tr(when (page) { Page.FAVOURITES -> "Your favourites"; else -> liveGreeting }), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                                }
+                                if (loading) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                             }
-                            if (loading) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.height(10.dp))
+                        } else if (compactLayout && loading) {
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
                         }
-                        Spacer(Modifier.height(18.dp))
+                        if (!compactLayout || searchExpanded) {
+                            OutlinedTextField(
+                                value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(),
+                                label = { Text(tr("Search channels or programmes")) }, singleLine = true,
+                                leadingIcon = { Text("⌕", style = MaterialTheme.typography.titleLarge) },
+                            )
+                            Spacer(Modifier.height(if (compactLayout) 6.dp else 12.dp))
+                        }
                         if (page == Page.GUIDE) {
                             GuideTimeline(
                                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -260,6 +303,7 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                                 channels = channels,
                                 nowEpoch = now,
                                 programmesFor = { channel -> programmesFor(channel) },
+                                query = query,
                                 logoFor = { channel -> ArtworkResolver.resolve(channel, guide.channelLogos, ArtworkResolver.mappings(), guide.channelNames) },
                                 onChannelSelected = { selectedChannel = it },
                                 onProgrammeSelected = { selectedProgramme = it },
@@ -291,13 +335,6 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                                 }
                             }
                         }
-                        Spacer(Modifier.height(18.dp))
-                        OutlinedTextField(
-                            value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(),
-                            label = { Text(tr("Search channels or programmes")) }, singleLine = true,
-                            leadingIcon = { Text("⌕", style = MaterialTheme.typography.titleLarge) },
-                        )
-                        Spacer(Modifier.height(12.dp))
                         Row(
                             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -312,7 +349,7 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                             val filtered = channels.filter { channel ->
                                 (group == "All channels" || channel.group == group) &&
                                     (page != Page.FAVOURITES || channel.url in settings.favourites) &&
-                                    (query.isBlank() || channel.name.contains(query, true) || channel.group.contains(query, true) || programmesFor(channel).any { it.title.contains(query, true) })
+                                    (query.isBlank() || channel.name.contains(query, true) || channel.group.contains(query, true) || programmesFor(channel).any { it.title.contains(query, true) || it.subtitle.contains(query, true) || it.episodeNumber.contains(query, true) })
                             }
                             if (status.isNotBlank()) {
                                 val guideFailed = status.contains("EPG failed", ignoreCase = true) || status.contains("تعذّر تحميل دليل البرامج")
@@ -370,6 +407,7 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
             nextChannel = channels.getOrNull(channelIndex + 1),
             onChannelSelected = { selectedChannel = it },
             onClose = { selectedChannel = null },
+            preferredExternalPlayer = settings.externalPlayer,
         )
     }
 }
@@ -381,6 +419,7 @@ private fun GuideTimeline(
     channels: List<Channel>,
     nowEpoch: Long,
     programmesFor: (Channel) -> List<Programme>,
+    query: String,
     logoFor: (Channel) -> String,
     onChannelSelected: (Channel) -> Unit,
     onProgrammeSelected: (Programme) -> Unit,
@@ -391,19 +430,30 @@ private fun GuideTimeline(
     val channelColumnWidth = if (compactLayout) 112.dp else 170.dp
     val hourWidth = if (compactLayout) 124.dp else 170.dp
     val timelineWidth = hourWidth * 6
+    val markerX = (((nowEpoch - rangeStart).coerceAtLeast(0L).toDouble() / 3600.0) * hourWidth.value).toFloat().dp
     val clockTicks = (0..6).map { index -> rangeStart + index * 3600L }
+    // programmesFor closes over the current EPG index; do not remember this list
+    // using only channels/query, or a newly loaded guide leaves search results stale.
+    val filteredChannels = if (query.isBlank()) channels else channels.filter { channel ->
+        channel.name.contains(query, true) || channel.group.contains(query, true) || programmesFor(channel).any {
+            it.title.contains(query, true) || it.subtitle.contains(query, true) || it.episodeNumber.contains(query, true)
+        }
+    }
+    val markerColor = Color(0xFFFF536D)
     Column(modifier.fillMaxSize()) {
-        Text(tr("6-HOUR GUIDE"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth().height(38.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(tr("CHANNEL"), Modifier.width(channelColumnWidth).padding(start = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
             Box(Modifier.weight(1f).horizontalScroll(scroll)) {
-                Row(Modifier.width(timelineWidth).fillMaxHeight()) {
-                    clockTicks.dropLast(1).forEach { tick ->
-                        Box(Modifier.width(hourWidth).fillMaxHeight().border(.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = .25f)).padding(start = 8.dp), contentAlignment = Alignment.CenterStart) {
-                            Text(formatTime(tick), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .76f))
+                Box(Modifier.width(timelineWidth).fillMaxHeight()) {
+                    Row(Modifier.fillMaxSize()) {
+                        clockTicks.dropLast(1).forEach { tick ->
+                            Box(Modifier.width(hourWidth).fillMaxHeight().border(.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = .25f)).padding(start = 8.dp), contentAlignment = Alignment.CenterStart) {
+                                Text(formatTime(tick), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .76f))
+                            }
                         }
                     }
+                    Box(Modifier.offset(x = markerX - 1.dp).width(2.dp).fillMaxHeight().background(markerColor))
+                    Box(Modifier.offset(x = markerX - 4.dp, y = 1.dp).size(8.dp).clip(CircleShape).background(markerColor))
                 }
             }
         }
@@ -414,7 +464,7 @@ private fun GuideTimeline(
             }
         } else {
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
-                items(channels, key = { "guide:${it.url}" }) { channel ->
+                items(filteredChannels, key = { "guide:${it.url}" }) { channel ->
                     val logo = logoFor(channel)
                     val programmes = programmesFor(channel).filter { it.end > rangeStart && it.start < rangeEnd }
                     Row(Modifier.fillMaxWidth().height(78.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -447,21 +497,24 @@ private fun GuideTimeline(
                                             shape = RoundedCornerShape(8.dp),
                                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = if (programme.start <= nowEpoch && programme.end > nowEpoch) .28f else .12f)),
                                         ) {
-                                            Column(Modifier.fillMaxSize().padding(horizontal = 7.dp, vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                Text(programme.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                                                Text("${formatTime(programme.start)}–${formatTime(programme.end)}", maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f))
+                                            Column(Modifier.fillMaxSize().padding(horizontal = 7.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                                Text(programme.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                                val episodeLine = listOf(programme.subtitle, programme.episodeNumber)
+                                                    .filter(String::isNotBlank).distinct().joinToString(" · ")
+                                                if (episodeLine.isNotBlank() && width.value >= 42f) Text(episodeLine, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .85f))
+                                                if (width.value >= 90f) Text("${formatTime(programme.start)}–${formatTime(programme.end)}", maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f))
                                             }
                                         }
                                     }
                                 }
+                                Box(Modifier.offset(x = markerX - 1.dp).width(2.dp).fillMaxHeight().background(markerColor))
+                                Box(Modifier.offset(x = markerX - 4.dp, y = 0.dp).size(8.dp).clip(CircleShape).background(markerColor))
                             }
                         }
                     }
                 }
             }
         }
-        Spacer(Modifier.height(4.dp))
-        Text(tr("Programme times follow each XMLTV timestamp offset; timestamps without an offset are interpreted as UTC."), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .56f))
     }
 }
 
@@ -589,92 +642,107 @@ private fun ChannelRow(
 }
 
 @Composable
-private fun SettingsPage(settings: AppSettings, onSettings: (AppSettings) -> Unit, onDone: () -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-    Text(tr("Make it yours"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-    Spacer(Modifier.height(8.dp))
-    Text(tr("Your theme, your colours, your screen."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
-    Spacer(Modifier.height(18.dp))
-    SettingsChoices(settings, onSettings)
-    Spacer(Modifier.height(20.dp))
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .4f))) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text(tr("Playback & sources"), fontWeight = FontWeight.SemiBold)
-            Text(tr("Android uses Media3. Linux opens streams in mpv. Add M3U and XMLTV sources from the ‘Add source’ action in the top bar."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
-            Text(tr("Artwork is loaded from playlist and XMLTV image URLs. No third-party scraping is performed."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
-            Text(tr("Self-signed TLS is disabled by default. The unsafe opt-in is for trusted servers only; certificate hostname checks remain enabled."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+private fun SettingsPage(settings: AppSettings, onSettings: (AppSettings) -> Unit, compactLayout: Boolean, onDone: () -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (!compactLayout) {
+            Text(tr("Make it yours"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(tr("Your theme, your colours, your screen."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
         }
-    }
-    Spacer(Modifier.height(10.dp))
-    OutlinedButton(onClick = onDone) { Text(tr("Back to TV")) }
-    Spacer(Modifier.height(12.dp))
+        SettingsChoices(settings, onSettings)
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .4f))) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(tr("Playback & sources"), fontWeight = FontWeight.SemiBold)
+                Text(tr("Android uses Media3. Linux opens streams in mpv. Add M3U and XMLTV sources from the ‘Add source’ action in the top bar."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
+                Text(tr("Artwork is loaded from playlist and XMLTV image URLs. No third-party scraping is performed."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
+                Text(tr("Self-signed TLS is disabled by default. The unsafe opt-in is for trusted servers only; certificate hostname checks remain enabled."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+        }
+        OutlinedButton(onClick = onDone) { Text(tr("Back to TV")) }
+        Spacer(Modifier.height(8.dp))
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SettingsChoices(settings: AppSettings, onSettings: (AppSettings) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(tr("LANGUAGE"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                supportedLanguages.forEach { candidate ->
-                    FilterChip(selected = settings.language == candidate, onClick = { onSettings(settings.copy(language = candidate)) }, label = { Text(tr(candidate)) })
-                }
-            }
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(tr("Allow self-signed HTTPS certificates"), fontWeight = FontWeight.SemiBold)
-                    Text(tr("Unsafe: disables certificate-chain verification for sources and playback. Keep off unless you trust the server/network."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                }
-                Switch(checked = settings.allowInsecureTls, onCheckedChange = { onSettings(settings.copy(allowInsecureTls = it)) })
-            }
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(tr("CATPPUCCIN FLAVOUR"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                flavours.forEach { candidate ->
-                    FilterChip(selected = settings.flavour == candidate, onClick = { onSettings(settings.copy(flavour = candidate)) }, label = { Text(candidate) })
-                }
-            }
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("${tr("ACCENT COLOUR · ")}${settings.accent.uppercase()}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                accents.forEach { candidate ->
-                    val selected = settings.accent == candidate
-                    val index = accents.indexOf(candidate)
-                    val swatch = colorForAccent(settings.flavour, index)
-                    Row(
-                        Modifier.clip(RoundedCornerShape(50)).background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .15f) else MaterialTheme.colorScheme.surface)
-                            .border(if (selected) 1.5.dp else .5.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = .45f), RoundedCornerShape(50))
-                            .clickable { onSettings(settings.copy(accent = candidate)) }.padding(horizontal = 10.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    ) {
-                        Box(Modifier.size(13.dp).clip(CircleShape).background(swatch))
-                        Text(candidate, style = MaterialTheme.typography.labelMedium)
+    var colourOptionsExpanded by remember { mutableStateOf(false) }
+    val platform = Platform.getPreference("platform", "desktop")
+    val isAndroid = platform == "android"
+    val availableAccentSources = if (isAndroid) listOf("Catppuccin", "Android Dynamic") else listOf("Catppuccin", "Linux Native System Colours")
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(tr("LANGUAGE"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    supportedLanguages.forEach { candidate ->
+                        FilterChip(selected = settings.language == candidate, onClick = { onSettings(settings.copy(language = candidate)) }, label = { Text(tr(candidate)) })
                     }
                 }
             }
         }
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(tr("APPEARANCE"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                appearanceModes.forEach { candidate ->
-                    FilterChip(selected = settings.appearance == candidate, onClick = { onSettings(settings.copy(appearance = candidate)) }, label = { Text(tr(candidate)) })
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(tr("Playback & network"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                if (isAndroid) {
+                    Text(tr("Preferred Android player"), style = MaterialTheme.typography.labelMedium)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf("In-app", "VLC", "MPV").forEach { candidate ->
+                            FilterChip(selected = settings.externalPlayer == candidate, onClick = { onSettings(settings.copy(externalPlayer = candidate)) }, label = { Text(tr(candidate)) })
+                        }
+                    }
+                    Text(tr("Choose an installed player; selecting a channel opens it directly."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(tr("Allow self-signed HTTPS certificates"), fontWeight = FontWeight.SemiBold)
+                        Text(tr("Unsafe: disables certificate-chain verification for sources and playback. Keep off unless you trust the server/network."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                    Switch(checked = settings.allowInsecureTls, onCheckedChange = { onSettings(settings.copy(allowInsecureTls = it)) })
                 }
             }
         }
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(tr("ACCENT SOURCE"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                accentSources.forEach { candidate ->
-                    FilterChip(selected = settings.accentSource == candidate, onClick = { onSettings(settings.copy(accentSource = candidate)) }, label = { Text(tr(candidate)) })
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { colourOptionsExpanded = !colourOptionsExpanded }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(tr("Appearance settings"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text("${settings.flavour} · ${settings.accent} · ${tr(settings.appearance)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
+                    }
+                    TextButton(onClick = { colourOptionsExpanded = !colourOptionsExpanded }) { Text(tr(if (colourOptionsExpanded) "Hide colour options" else "Show colour options")) }
+                }
+                if (colourOptionsExpanded) {
+                    Text(tr("CATPPUCCIN FLAVOUR"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        flavours.forEach { candidate -> FilterChip(selected = settings.flavour == candidate, onClick = { onSettings(settings.copy(flavour = candidate)) }, label = { Text(candidate) }) }
+                    }
+                    Text("${tr("ACCENT COLOUR · ")}${settings.accent.uppercase()}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        accents.forEach { candidate ->
+                            val selected = settings.accent == candidate
+                            val swatch = colorForAccent(settings.flavour, accents.indexOf(candidate))
+                            Row(
+                                Modifier.clip(RoundedCornerShape(50)).background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .15f) else MaterialTheme.colorScheme.surface)
+                                    .border(if (selected) 1.5.dp else .5.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = .45f), RoundedCornerShape(50))
+                                    .clickable { onSettings(settings.copy(accent = candidate)) }.padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Box(Modifier.size(12.dp).clip(CircleShape).background(swatch))
+                                Text(candidate, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                    Text(tr("APPEARANCE"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        appearanceModes.forEach { candidate -> FilterChip(selected = settings.appearance == candidate, onClick = { onSettings(settings.copy(appearance = candidate)) }, label = { Text(tr(candidate)) }) }
+                    }
+                    Text(tr("ACCENT SOURCE"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        availableAccentSources.forEach { candidate -> FilterChip(selected = settings.accentSource == candidate, onClick = { onSettings(settings.copy(accentSource = candidate)) }, label = { Text(tr(candidate)) }) }
+                    }
+                    Text(tr("Dynamic colour requires Android 12+. Linux Native System Colours reads XDG Desktop Portal settings; unavailable values fall back to Catppuccin. AMOLED keeps the main backgrounds pure black."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
                 }
             }
-            Text(tr("Dynamic colour requires Android 12+. Linux Native System Colours reads XDG Desktop Portal settings; unavailable values fall back to Catppuccin. AMOLED keeps the main backgrounds pure black."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
         }
     }
 }
@@ -719,6 +787,8 @@ private fun ProgrammeDialog(programme: Programme, onDismiss: () -> Unit) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (programme.image.isNotBlank()) AsyncImage(programme.image, contentDescription = tr("Programme artwork"), modifier = Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Crop)
                 Text("${formatTime(programme.start)} – ${formatTime(programme.end)}")
+                val episodeDetails = listOf(programme.subtitle, programme.episodeNumber).filter(String::isNotBlank).distinct()
+                if (episodeDetails.isNotEmpty()) Text(episodeDetails.joinToString(" · "), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
                 Text(programme.description.ifBlank { tr("No programme description was provided by the guide.") }, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
             }
         },
@@ -735,4 +805,5 @@ expect @Composable fun PlaybackPane(
     nextChannel: Channel?,
     onChannelSelected: (Channel) -> Unit,
     onClose: () -> Unit,
+    preferredExternalPlayer: String = "In-app",
 )

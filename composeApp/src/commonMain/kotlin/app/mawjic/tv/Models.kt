@@ -26,6 +26,8 @@ data class Programme(
     val image: String,
     val start: Long,
     val end: Long,
+    val subtitle: String = "",
+    val episodeNumber: String = "",
 )
 
 data class GuideData(val channelLogos: Map<String, String>, val channelNames: Map<String, String>, val programmes: List<Programme>)
@@ -107,6 +109,8 @@ object PlatformBridge {
                 image = ArtworkResolver.safeUrl(item.string("image")),
                 start = start,
                 end = end,
+                subtitle = item.string("subtitle"),
+                episodeNumber = item.string("episodeNumber"),
             )
         }.sortedBy(Programme::start)
         return GuideData(logos, names, programmes)

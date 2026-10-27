@@ -42,6 +42,7 @@ assert 'coil-compose:3.5.0' in build and 'coil-network-ktor3:3.5.0' in build and
 theme = (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/Theme.kt').read_text(encoding='utf-8')
 app = (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/App.kt').read_text(encoding='utf-8')
 android_platform = (root / 'composeApp/src/androidMain/kotlin/app/mawjic/tv/Platform.android.kt').read_text(encoding='utf-8')
+android_player = (root / 'composeApp/src/androidMain/kotlin/app/mawjic/tv/Playback.android.kt').read_text(encoding='utf-8')
 assert 'Color(value.toULong())' not in theme, 'ARGB values must not be passed to Compose packed-Color constructor'
 assert 'hex.removePrefix("#").toLong(16)).toULong()' not in theme + app, 'ARGB hex values must use Color(Int) conversion'
 assert 'colorScheme.background.toArgb().toLong()' in app
@@ -51,7 +52,25 @@ for deprecated_alias in ('implementation(compose.runtime)', 'implementation(comp
 assert 'TargetFormat.Rpm' in build
 assert 'gzip XMLTV' in (root / 'README.md').read_text(encoding='utf-8')
 assert 'Mawjic artwork failed' in app and 'AsyncImagePainter.State.Error' in app
+assert 'setSingletonImageLoaderFactory' in app and 'KtorNetworkFetcherFactory' in app and 'HttpClient()' in app
+assert 'triedHlsFallback' in android_player and 'MimeTypes.APPLICATION_M3U8' in android_player
+manifest = (root / 'composeApp/src/androidMain/AndroidManifest.xml').read_text(encoding='utf-8')
+assert 'org.videolan.vlc' in manifest and 'is.xyz.mpv' in manifest
+common_tests = (root / 'composeApp/src/commonTest/kotlin/app/mawjic/tv/CoreIntegrationTest.kt').read_text(encoding='utf-8')
+assert 'assertEquals(2, guide.programmes.size)' in common_tests
+assert 'xmltvSubtitleAndOnscreenEpisodeNumberSurviveNativeParsing' in common_tests
 assert 'sourceReloadVersion' in app and 'hourWidth.value.toDouble()' in app
+models = (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/Models.kt').read_text(encoding='utf-8')
+rust = (root / 'rust-core/src/lib.rs').read_text(encoding='utf-8')
+android_player = (root / 'composeApp/src/androidMain/kotlin/app/mawjic/tv/Playback.android.kt').read_text(encoding='utf-8')
+assert 'val subtitle: String = ""' in models and 'val episodeNumber: String = ""' in models
+assert '"sub-title"' in rust and '"episode-num"' in rust and '"image" => if let Some(p)' in rust
+assert 'LaunchedEffect(url, selectedExternalPlayer, useInAppFallback)' in android_player
+assert '"org.videolan.vlc"' in android_player and '"is.xyz.mpv"' in android_player
+listener_at = android_player.index('player.addListener(listener)')
+initial_item_at = android_player.index('player.setMediaItem(mediaItem())')
+initial_prepare_at = android_player.index('player.prepare()', initial_item_at)
+assert listener_at < initial_item_at < initial_prepare_at, 'Media3 listener must be attached before initial prepare'
 assert 'GZIPInputStream' in (root / 'composeApp/src/androidMain/kotlin/app/mawjic/tv/Platform.android.kt').read_text(encoding='utf-8')
 assert 'GZIPInputStream' in (root / 'composeApp/src/desktopMain/kotlin/app/mawjic/tv/Platform.desktop.kt').read_text(encoding='utf-8')
 root_build = (root / 'build.gradle.kts').read_text(encoding='utf-8')

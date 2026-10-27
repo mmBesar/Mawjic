@@ -136,7 +136,7 @@ fn channels_json(channels: &[Channel]) -> String {
 #[derive(Debug, Default)]
 struct XmlChannel { id: String, name: String, logo: String }
 #[derive(Debug, Default)]
-struct Programme { channel: String, title: String, description: String, image: String, start: i64, end: i64 }
+struct Programme { channel: String, title: String, subtitle: String, episode_number: String, description: String, image: String, start: i64, end: i64 }
 #[derive(Debug)]
 enum XmlEvent { Start(String, HashMap<String, String>, bool), End(String), Text(String) }
 
@@ -296,7 +296,7 @@ fn parse_xmltv(input: &str) -> Result<String, String> {
     let mut programmes: Vec<Programme> = Vec::new();
     let mut channel: Option<XmlChannel> = None;
     let mut programme: Option<Programme> = None;
-    let mut active_text: Option<(String, String)> = None;
+    let mut active_text: Option<(String, String, String)> = None;
     for event in events {
         match event {
             XmlEvent::Start(tag, attrs, self_closing) => {
@@ -313,22 +313,29 @@ fn parse_xmltv(input: &str) -> Result<String, String> {
                         if let Some(c) = channel.as_mut() { if c.logo.is_empty() { c.logo = src.clone(); } }
                         if let Some(p) = programme.as_mut() { if p.image.is_empty() { p.image = src.clone(); } }
                     },
-                    "display-name" | "title" | "desc" => active_text = Some((tag, String::new())),
+                    "display-name" | "title" | "sub-title" | "desc" | "episode-num" | "image" => active_text = Some((tag, String::new(), attrs.get("system").cloned().unwrap_or_default())),
                     _ => {}
                 }
                 let _ = self_closing;
             }
-            XmlEvent::Text(text) => if let Some((_, buffer)) = active_text.as_mut() { buffer.push_str(&text); },
+            XmlEvent::Text(text) => if let Some((_, buffer, _)) = active_text.as_mut() { buffer.push_str(&text); },
             XmlEvent::End(tag) => {
-                if let Some((active, value)) = active_text.take() {
+                if let Some((active, value, system)) = active_text.take() {
                     if active != tag {
-                        active_text = Some((active, value));
+                        active_text = Some((active, value, system));
                     } else {
                         let value = value.trim().to_owned();
                         match active.as_str() {
                             "display-name" => if let Some(c) = channel.as_mut() { if c.name.is_empty() { c.name = value; } },
                             "title" => if let Some(p) = programme.as_mut() { if p.title.is_empty() { p.title = value; } },
+                            "sub-title" => if let Some(p) = programme.as_mut() { if p.subtitle.is_empty() { p.subtitle = value; } },
                             "desc" => if let Some(p) = programme.as_mut() { if p.description.is_empty() { p.description = value; } },
+                            "image" => if let Some(p) = programme.as_mut() { if p.image.is_empty() { p.image = value; } },
+                            "episode-num" => if let Some(p) = programme.as_mut() {
+                                if system.eq_ignore_ascii_case("onscreen") || p.episode_number.is_empty() {
+                                    p.episode_number = value;
+                                }
+                            },
                             _ => {}
                         }
                     }
@@ -339,7 +346,7 @@ fn parse_xmltv(input: &str) -> Result<String, String> {
         }
     }
     let channel_json = channels.iter().map(|c| format!("{{\"id\":{},\"name\":{},\"logo\":{}}}", json_string(&c.id), json_string(&c.name), json_string(&c.logo))).collect::<Vec<_>>().join(",");
-    let programme_json = programmes.iter().map(|p| format!("{{\"channel\":{},\"title\":{},\"description\":{},\"image\":{},\"start\":{},\"end\":{}}}", json_string(&p.channel), json_string(&p.title), json_string(&p.description), json_string(&p.image), p.start, p.end)).collect::<Vec<_>>().join(",");
+    let programme_json = programmes.iter().map(|p| format!("{{\"channel\":{},\"title\":{},\"subtitle\":{},\"episodeNumber\":{},\"description\":{},\"image\":{},\"start\":{},\"end\":{}}}", json_string(&p.channel), json_string(&p.title), json_string(&p.subtitle), json_string(&p.episode_number), json_string(&p.description), json_string(&p.image), p.start, p.end)).collect::<Vec<_>>().join(",");
     Ok(format!("{{\"channels\":[{channel_json}],\"programmes\":[{programme_json}]}}"))
 }
 
@@ -428,6 +435,16 @@ mod tests {
         assert!(parsed.contains("Tom & Jerry"));
         assert!(parsed.contains("https://img.test/show.jpg"));
         assert!(parsed.contains("1704063600"));
+    }
+
+    #[test]
+    fn xmltv_preserves_subtitle_and_prefers_onscreen_episode_number() {
+        let xml = r#"<!DOCTYPE tv SYSTEM "http://example.test/xmltv.dtd"><tv><programme start="20261027025341 +0000" stop="20261027031832 +0000" channel="bean"><title>Mr. Bean</title><sub-title>Tee Off, Mr. Bean</sub-title><desc>A description.</desc><episode-num system="onscreen">S01E12</episode-num><episode-num system="xmltv_ns">0.11.</episode-num></programme><programme start="20261027031832 +0000" stop="20261027034332 +0000" channel="bean"><title>Image-only art</title><image size="3" type="poster">https://images.example.invalid/poster.jpg</image></programme></tv>"#;
+        let parsed = parse_xmltv(xml).unwrap();
+        assert!(parsed.contains("\"subtitle\":\"Tee Off, Mr. Bean\""));
+        assert!(parsed.contains("\"episodeNumber\":\"S01E12\""));
+        assert!(parsed.contains("\"description\":\"A description.\""));
+        assert!(parsed.contains("https://images.example.invalid/poster.jpg"));
     }
 
     #[test]

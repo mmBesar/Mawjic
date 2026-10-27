@@ -21,6 +21,7 @@ data class AppSettings(
     val accentSource: String = "Catppuccin",
     val language: String = "English",
     val allowInsecureTls: Boolean = false,
+    val externalPlayer: String = "In-app",
     val playlistSource: String = "",
     val guideSource: String = "",
     val favourites: Set<String> = emptySet(),
@@ -32,12 +33,15 @@ data class AppSettings(
         Platform.setPreference("accentSource", accentSource)
         Platform.setPreference("language", language)
         Platform.setPreference("allowInsecureTls", allowInsecureTls.toString())
+        Platform.setPreference("externalPlayer", externalPlayer)
         Platform.setPreference("playlistSource", playlistSource)
         Platform.setPreference("guideSource", guideSource)
         Platform.setPreference("favourites", favourites.joinToString("\n"))
     }
     companion object {
         fun load(): AppSettings {
+            // Restore the persisted TLS policy before the first source/artwork client is created.
+            Platform.configureTlsPolicy()
             val favs = Platform.getPreference("favourites", "").lineSequence().filter(String::isNotBlank).toSet()
             return AppSettings(
                 flavour = Platform.getPreference("flavour", "Mocha").takeIf(flavours::contains) ?: "Mocha",
@@ -46,6 +50,7 @@ data class AppSettings(
                 accentSource = Platform.getPreference("accentSource", "Catppuccin").takeIf(accentSources::contains) ?: "Catppuccin",
                 language = Platform.getPreference("language", "English").takeIf(supportedLanguages::contains) ?: "English",
                 allowInsecureTls = Platform.getPreference("allowInsecureTls", "false").toBoolean(),
+                externalPlayer = Platform.getPreference("externalPlayer", "In-app").takeIf { it in listOf("In-app", "VLC", "MPV") } ?: "In-app",
                 playlistSource = Platform.getPreference("playlistSource", ""),
                 guideSource = Platform.getPreference("guideSource", ""), favourites = favs,
             )

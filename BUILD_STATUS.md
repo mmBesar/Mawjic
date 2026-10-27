@@ -69,3 +69,12 @@ These changes have received static review only in this environment. Run hosted R
 - TLS: self-signed/untrusted certificate-chain acceptance is off by default and intentionally unsafe; hostname verification remains enabled. Reloading source settings now retries source loads after a TLS setting change. Correct server certificates remain the preferred solution.
 - Research references and product choices are in `docs/UX_RESEARCH.md`. No third-party source code was copied.
 - Not verified here: Rust compilation/tests, Kotlin compilation, AppImage launch, real `.xml.gz` feed, Linux remote logos, self-signed playback, or phone layout. Run GitHub Actions and manual runtime checks before declaring complete.
+
+## Usability, playback and XMLTV subtitle follow-up (2026-10-27)
+
+- Linux artwork: the shared Compose root explicitly configures Coil 3 with its Ktor network fetcher and the platform-specific Ktor engine. Linux remote images still need runtime verification against the maintainer's real image hosts.
+- XMLTV metadata: preserve `<sub-title>` and `<episode-num>` through the Rust JSON ABI and Kotlin model; prefer the `onscreen` episode number, keep description separate, and read text-valued `<image>` poster elements when no `<icon src>` was supplied. The common fixture count now matches its two programme records.
+- Android playback: attach Media3 error listeners before initial preparation, configure HTTP timeouts/user-agent/redirects and inferred MIME, and make one bounded HLS retry for extensionless HTTP(S) IPTV endpoints after a first playback error. Display a redacted cause message for diagnosis; real streams must still be tested.
+- Android external playback: persist In-app/VLC/MPV selection, auto-launch the selected installed package, declare VLC/mpv-android package visibility, and retain an in-app fallback if launching fails. Android player/intent handoff needs device validation.
+- Compact UI: keep the 15-second current-time EPG marker, subtitle/episode line on programme cards and details, collapsible compact search and appearance controls, local-time greeting, and platform-filtered colour source settings.
+- Code-audit note: static scripts and source sanity can be checked here, but this environment has no usable Gradle or Cargo toolchain. Hosted CI must compile and run Rust/Kotlin tests; manual device tests must verify Linux logos, Android stream compatibility, MPV/VLC handoff, current-time marker visuals, and self-signed TLS behavior.

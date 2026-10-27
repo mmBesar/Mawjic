@@ -1,5 +1,6 @@
 package app.mawjic.tv
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Handler
@@ -36,9 +37,13 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TrackSelectionDialogBuilder
 
@@ -50,45 +55,132 @@ actual fun PlaybackPane(
     nextChannel: Channel?,
     onChannelSelected: (Channel) -> Unit,
     onClose: () -> Unit,
+    preferredExternalPlayer: String,
 ) {
     val context = LocalContext.current
+    var selectedExternalPlayer by remember(url, preferredExternalPlayer) { mutableStateOf(preferredExternalPlayer) }
+    var useInAppFallback by remember(url, preferredExternalPlayer) { mutableStateOf(preferredExternalPlayer == "In-app") }
+    var externalLaunchError by remember(url, preferredExternalPlayer) { mutableStateOf("") }
+    if (selectedExternalPlayer != "In-app" && !useInAppFallback) {
+        LaunchedEffect(url, selectedExternalPlayer, useInAppFallback) {
+            val scheme = url.substringBefore(':', "").lowercase()
+            val safeExternalSchemes = setOf("http", "https", "rtsp", "rtmp", "rtmps", "rtp", "mms", "mmst", "mmsh", "tcp", "udp", "file", "content")
+            if (scheme !in safeExternalSchemes) {
+                externalLaunchError = "Unsupported stream URL scheme: $scheme"
+                return@LaunchedEffect
+            }
+            val packageName = when (selectedExternalPlayer) {
+                "VLC" -> "org.videolan.vlc"
+                "MPV" -> "is.xyz.mpv"
+                else -> null
+            }
+            if (packageName == null) {
+                externalLaunchError = "Unknown external player preference."
+            } else {
+                try {
+                    val uri = Uri.parse(url)
+                    val protocolScheme = scheme in setOf("rtmp", "rtmps", "rtp", "rtsp", "mms", "mmst", "mmsh", "tcp", "udp")
+                    val intent = if (protocolScheme) {
+                        // mpv-android registers these protocols without a MIME type; adding
+                        // video/any can prevent Android from matching its protocol intent filter.
+                        Intent(Intent.ACTION_VIEW, uri)
+                    } else {
+                        val mediaType = if (selectedExternalPlayer == "MPV") "video/any" else "video/*"
+                        Intent(Intent.ACTION_VIEW).setDataAndType(uri, mediaType)
+                    }
+                    intent.setPackage(packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("title", channelName)
+                    context.startActivity(intent)
+                    onClose()
+                } catch (error: ActivityNotFoundException) {
+                    externalLaunchError = "$selectedExternalPlayer is not installed or cannot open this stream."
+                } catch (error: Exception) {
+                    externalLaunchError = "Could not launch $selectedExternalPlayer (${error::class.simpleName ?: "error"})."
+                }
+            }
+        }
+        AlertDialog(
+            onDismissRequest = onClose,
+            title = { Text(tr("Open in external player")) },
+            text = { Text(if (externalLaunchError.isBlank()) tr("Opening channel in preferred external player…") else externalLaunchError) },
+            confirmButton = { Button(onClick = { useInAppFallback = true }) { Text(tr("Use in-app player")) } },
+            dismissButton = { TextButton(onClick = onClose) { Text(tr("Cancel")) } },
+        )
+        return
+    }
     val scheme = url.substringBefore(':', "").lowercase()
     var retryCount by remember(url) { mutableIntStateOf(0) }
     var lastError by remember(url) { mutableStateOf("") }
+    val retryHandler = remember(url) { Handler(Looper.getMainLooper()) }
     if (scheme !in setOf("http", "https", "rtsp", "file", "content")) {
         AlertDialog(
             onDismissRequest = onClose,
             title = { Text("Unsupported in-app stream") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Android Media3 does not natively handle the '$scheme' scheme in this player.")
+                    Text("Android Media3 does not natively handle the '$scheme' scheme in this player. Choose an installed external player.")
                     if (lastError.isNotBlank()) Text(lastError, color = MaterialTheme.colorScheme.error)
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    runCatching { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, Uri.parse(url)), "Open stream with")) }
-                        .onFailure { lastError = "Could not open an external player: ${it::class.simpleName ?: "error"}" }
-                }) { Text(tr("Open in external player")) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { selectedExternalPlayer = "VLC"; useInAppFallback = false; externalLaunchError = "" }) { Text("VLC") }
+                    TextButton(onClick = { selectedExternalPlayer = "MPV"; useInAppFallback = false; externalLaunchError = "" }) { Text("MPV") }
+                }
             },
-            dismissButton = { TextButton(onClick = onClose) { Text("Close") } },
+            dismissButton = { TextButton(onClick = onClose) { Text(tr("Close")) } },
         )
         return
     }
     val player = remember(url) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(url))
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent("Mawjic/0.1.0")
+            .setConnectTimeoutMs(20_000)
+            .setReadTimeoutMs(30_000)
+            .setAllowCrossProtocolRedirects(true)
+            .setDefaultRequestProperties(mapOf("Accept" to "*/*", "Icy-MetaData" to "1"))
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+        ExoPlayer.Builder(context).setMediaSourceFactory(mediaSourceFactory).build().apply {
             playWhenReady = true
-            prepare()
+            setHandleAudioBecomingNoisy(true)
         }
     }
-    DisposableEffect(player) {
+    DisposableEffect(player, url) {
+        val lowerUrl = url.substringBefore('?').lowercase()
+        val mimeType = when {
+            lowerUrl.endsWith(".m3u8") -> MimeTypes.APPLICATION_M3U8
+            lowerUrl.endsWith(".mpd") -> MimeTypes.APPLICATION_MPD
+            lowerUrl.endsWith(".ts") -> "video/mp2t"
+            else -> null
+        }
+        var triedHlsFallback = false
+        fun mediaItem(type: String? = mimeType): MediaItem = MediaItem.Builder().setUri(url).apply {
+            if (type != null) setMimeType(type)
+        }.build()
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                lastError = error.errorCodeName
+                val causeText = generateSequence(error as Throwable?) { it.cause }
+                    .mapNotNull { it.message?.takeIf(String::isNotBlank) }
+                    .firstOrNull()
+                    ?.replace(Regex("https?://\\S+"), "[stream URL]")
+                    ?.take(140)
+                lastError = if (causeText == null) error.errorCodeName else "${error.errorCodeName}: $causeText"
+
+                // Many IPTV servers use extensionless /live/UUID endpoints for HLS.
+                // Media3 otherwise treats them as progressive files. On the first
+                // failure only, retry that common case once as an HLS playlist.
+                if (mimeType == null && url.startsWith("http", ignoreCase = true) && !triedHlsFallback) {
+                    triedHlsFallback = true
+                    retryHandler.post {
+                        player.setMediaItem(mediaItem(MimeTypes.APPLICATION_M3U8))
+                        player.prepare()
+                        player.playWhenReady = true
+                    }
+                    return
+                }
                 if (retryCount < 3) {
                     retryCount++
-                    Handler(Looper.getMainLooper()).postDelayed({
+                    retryHandler.postDelayed({
                         if (player.isCommandAvailable(Player.COMMAND_PREPARE)) {
                             player.prepare()
                             player.playWhenReady = true
@@ -98,8 +190,11 @@ actual fun PlaybackPane(
             }
             override fun onPlaybackStateChanged(playbackState: Int) { if (playbackState == Player.STATE_READY) lastError = "" }
         }
+        // Attach before prepare so initial DNS/HTTP/decoder errors cannot be missed.
         player.addListener(listener)
-        onDispose { player.removeListener(listener); player.release() }
+        player.setMediaItem(mediaItem())
+        player.prepare()
+        onDispose { retryHandler.removeCallbacksAndMessages(null); player.removeListener(listener); player.release() }
     }
     BackHandler(onBack = onClose)
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
@@ -120,13 +215,17 @@ actual fun PlaybackPane(
                     TextButton(onClick = { TrackSelectionDialogBuilder(context, "Audio track", player, C.TRACK_TYPE_AUDIO).build().show() }) { Text("Audio", color = Color.White) }
                     TextButton(onClick = { TrackSelectionDialogBuilder(context, "Subtitles", player, C.TRACK_TYPE_TEXT).build().show() }) { Text("CC", color = Color.White) }
                 }
-                // Some providers expose stream variants Media3 cannot play. Let the user hand off explicitly.
-                OutlinedButton(onClick = {
-                    runCatching {
-                        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, Uri.parse(url)), "Open stream with"))
-                    }.onFailure { lastError = "No external player can handle this stream: ${it.message ?: "unknown error"}" }
-                }) { Text(tr("Open in external player"), color = Color.White) }
-                if (lastError.isNotBlank()) Text("Playback error: $lastError · retry $retryCount/3", color = Color.White)
+                if (lastError.isNotBlank()) {
+                    Text("Playback error: $lastError · retry $retryCount/3", color = Color.White)
+                    if (preferredExternalPlayer != "In-app") {
+                        OutlinedButton(onClick = { selectedExternalPlayer = preferredExternalPlayer; useInAppFallback = false; externalLaunchError = "" }) {
+                            Text(tr("Retry with preferred external player"), color = Color.White)
+                        }
+                    } else {
+                        OutlinedButton(onClick = { selectedExternalPlayer = "VLC"; useInAppFallback = false; externalLaunchError = "" }) { Text("VLC", color = Color.White) }
+                        OutlinedButton(onClick = { selectedExternalPlayer = "MPV"; useInAppFallback = false; externalLaunchError = "" }) { Text("MPV", color = Color.White) }
+                    }
+                }
             }
         }
     }

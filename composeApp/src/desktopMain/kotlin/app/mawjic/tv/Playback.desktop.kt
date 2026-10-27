@@ -33,6 +33,7 @@ import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.TimeUnit
 
 @Composable
+@Suppress("UNUSED_PARAMETER")
 actual fun PlaybackPane(
     url: String,
     channelName: String,
@@ -40,6 +41,7 @@ actual fun PlaybackPane(
     nextChannel: Channel?,
     onChannelSelected: (Channel) -> Unit,
     onClose: () -> Unit,
+    preferredExternalPlayer: String,
 ) {
     var state by remember { mutableStateOf("Starting mpv…") }
     var process by remember { mutableStateOf<Process?>(null) }
