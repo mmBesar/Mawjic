@@ -1,0 +1,78 @@
+package app.mawjic.tv
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
+
+/** Application-controlled display language. Channel and programme metadata stay source-provided. */
+internal val LocalAppLanguage = staticCompositionLocalOf { "English" }
+internal val supportedLanguages = listOf("English", "Arabic")
+
+private val arabic: Map<String, String> = mapOf(
+    "Live TV" to "التلفزيون المباشر",
+    "TV Guide" to "دليل التلفزيون",
+    "Favourites" to "المفضلة",
+    "All channels" to "كل القنوات",
+    "Uncategorized" to "غير مصنّف",
+    "Settings" to "الإعدادات",
+    "YOUR CHANNELS, IN ONE PLACE" to "قنواتك، في مكان واحد",
+    "Streaming, your wave." to "البث على موجتك.",
+    "＋  Add source" to "＋ إضافة مصدر",
+    "SOURCE STATUS" to "حالة المصدر",
+    "Connected" to "متصل",
+    "Not connected" to "غير متصل",
+    "READY TO WATCH" to "جاهز للمشاهدة",
+    "Choose a channel to start streaming" to "اختر قناة لبدء المشاهدة",
+    "Watch now  →" to "← شاهد الآن",
+    "Search channels or programmes" to "ابحث عن القنوات أو البرامج",
+    "No EPG data yet · add an XMLTV URL in Sources" to "لا توجد بيانات دليل بعد · أضف رابط XMLTV من المصادر",
+    "6-HOUR GUIDE" to "دليل البرامج لمدة 6 ساعات",
+    "CHANNEL" to "القناة",
+    "Add a playlist and XMLTV guide to build your programme timeline." to "أضف قائمة تشغيل ودليل XMLTV لعرض جدول البرامج.",
+    "Programme times follow each XMLTV timestamp offset; timestamps without an offset are interpreted as UTC." to "تُعرض أوقات البرامج حسب الإزاحة الزمنية في XMLTV؛ ويُفسَّر الوقت الذي لا يتضمن إزاحة على أنه UTC.",
+    "Tuning in…" to "جارٍ الاتصال…",
+    "Your TV starts here" to "تبدأ تجربة التلفزيون من هنا",
+    "Add playlist & guide" to "أضف قائمة التشغيل والدليل",
+    "Details" to "التفاصيل",
+    "Watch" to "شاهد",
+    "No programme information" to "لا تتوفر معلومات عن البرنامج",
+    "Guide not available" to "الدليل غير متاح",
+    "Next · " to "التالي · ",
+    "Until " to "حتى ",
+    "Make it yours" to "خصّص تجربتك",
+    "Your theme, your colours, your screen." to "سمتك، ألوانك، شاشتك.",
+    "Playback & sources" to "التشغيل والمصادر",
+    "Android uses Media3. Linux opens streams in mpv. Add M3U and XMLTV sources from the ‘Add source’ action in the top bar." to "يستخدم Android مكتبة Media3، بينما يفتح Linux البث عبر mpv. أضف مصادر M3U وXMLTV من زر «إضافة مصدر» في الشريط العلوي.",
+    "Artwork is loaded from trusted HTTP(S) logo and XMLTV icon URLs. No third-party scraping is performed." to "تُحمَّل الصور من روابط شعارات موثوقة وحقول XMLTV. لا يجري كشط مواقع خارجية.",
+    "Back to TV" to "العودة إلى التلفزيون",
+    "LANGUAGE" to "اللغة",
+    "English" to "English",
+    "Arabic" to "العربية",
+    "CATPPUCCIN FLAVOUR" to "سمة Catppuccin",
+    "ACCENT COLOUR · " to "لون التمييز · ",
+    "APPEARANCE" to "المظهر",
+    "ACCENT SOURCE" to "مصدر لون التمييز",
+    "System" to "حسب النظام",
+    "Light" to "فاتح",
+    "Dark" to "داكن",
+    "AMOLED Black" to "أسود AMOLED",
+    "Catppuccin" to "Catppuccin",
+    "Android Dynamic" to "ألوان Android الديناميكية",
+    "Linux Native System Colours" to "ألوان نظام Linux",
+    "Dynamic colour requires Android 12+. Linux Native System Colours reads XDG Desktop Portal settings; unavailable values fall back to Catppuccin. AMOLED keeps the main backgrounds pure black." to "تتطلب الألوان الديناميكية Android 12 أو أحدث. تقرأ ألوان نظام Linux إعدادات XDG Desktop Portal، وتعود إلى Catppuccin عند عدم توفرها. يستخدم AMOLED الأسود الخالص للخلفيات الرئيسية.",
+    "Connect your TV sources" to "ربط مصادر التلفزيون",
+    "Use an HTTP(S) URL, a local file path, file:// URI, or an Android document URI." to "استخدم رابط HTTP(S)، أو مسار ملف محلي، أو URI من نوع file://، أو URI لمستند Android.",
+    "M3U / M3U8 playlist *" to "قائمة تشغيل M3U / M3U8 *",
+    "XMLTV guide (optional)" to "دليل XMLTV (اختياري)",
+    "Browse" to "استعراض",
+    "Tunarr and ErsatzTV work through their standard M3U and XMLTV endpoints; enter the URLs copied from their UI." to "يعمل Tunarr وErsatzTV عبر روابط M3U وXMLTV القياسية؛ أدخل الروابط المنسوخة من واجهتيهما.",
+    "Loading…" to "جارٍ التحميل…",
+    "Save & load" to "حفظ وتحميل",
+    "Cancel" to "إلغاء",
+    "Programme artwork" to "صورة البرنامج",
+    "No programme description was provided by the guide." to "لم يقدّم الدليل وصفًا لهذا البرنامج.",
+    "Close" to "إغلاق",
+)
+
+@Composable
+internal fun tr(english: String): String =
+    if (LocalAppLanguage.current == "Arabic") arabic[english] ?: english else english

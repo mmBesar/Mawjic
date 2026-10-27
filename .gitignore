@@ -1,0 +1,45 @@
+# Gradle / JVM
+.gradle/
+**/build/
+.kotlin/
+*.hprof
+hs_err_pid*
+
+# Rust
+/target/
+/rust-core/target/
+
+# Local IDE files
+.idea/
+*.iml
+.vscode/
+
+# Local app data and native outputs
+*.apk
+*.aab
+*.deb
+*.rpm
+*.tar.gz
+*.so
+*.dylib
+*.dll
+*.class
+
+# Android signing secrets; never commit release keystores
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+local.properties
+.env
+.env.*
+!.env.example
+
+# OS/editor
+.DS_Store
+Thumbs.db
+*~
+
+# AppImage release outputs
+*.AppImage

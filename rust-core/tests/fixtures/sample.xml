@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <channel id="news.one">
+    <display-name>News One</display-name>
+    <icon src="https://images.example.invalid/news-one.svg" />
+  </channel>
+  <programme start="20240101010000 +0200" stop="20240101020000 +0200" channel="news.one">
+    <title>Morning headlines</title>
+    <desc>Local &amp; international headlines.</desc>
+    <icon src="https://images.example.invalid/morning.jpg" />
+  </programme>
+</tv>

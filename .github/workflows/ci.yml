@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags-ignore: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-core:
+    name: Rust format, tests, lints, audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Format Rust sources in CI workspace
+        run: cargo fmt --manifest-path rust-core/Cargo.toml --all
+      - name: Unit and ABI integration tests
+        run: cargo test --manifest-path rust-core/Cargo.toml --locked
+      - name: Clippy
+        run: cargo clippy --manifest-path rust-core/Cargo.toml --locked --all-targets -- -D warnings
+      - name: Source safety and licence inventory checks
+        run: scripts/source-sanity.sh
+      - name: Install pinned cargo-audit
+        run: cargo install cargo-audit --locked --version 0.22.2
+      - name: Audit the Rust workspace lockfile
+        run: cargo audit --file rust-core/Cargo.lock
+
+  linux:
+    name: Linux ${{ matrix.arch }} tests and packages
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          # This repository uses a small checksum-verifying bootstrap script,
+          # not Gradle's generated wrapper JAR. Validation would reject that
+          # custom bootstrap; its distribution checksum is verified by gradlew.
+          validate-wrappers: false
+      - name: Install package inspection tools
+        run: sudo apt-get update && sudo apt-get install -y fakeroot rpm binutils
+      - name: Fetch and verify pinned AppImage tooling
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "APPIMAGETOOL_PATH=$(scripts/fetch-appimagetool.sh '${{ matrix.arch }}' "$RUNNER_TEMP")" >> "$GITHUB_ENV"
+      - name: Build, test, and create the distributable app directory
+        run: |
+          ./gradlew --stacktrace \
+            :composeApp:desktopTest \
+            :composeApp:createDistributable \
+            :composeApp:packageDeb \
+            :composeApp:packageRpm \
+            -PversionName=0.1.0
+      - name: Stage AppImage, DEB, and RPM
+        shell: bash
+        run: |
+          set -euo pipefail
+          arch='${{ matrix.arch }}'
+          app_root='composeApp/build/compose/binaries/main/app'
+          if [[ ! -d "$app_root" ]]; then
+            echo "Gradle did not create the jpackage app directory: $app_root" >&2
+            find composeApp/build/compose/binaries/main -maxdepth 4 -print >&2 || true
+            exit 1
+          fi
+          mkdir -p release-assets
+          deb="$(find composeApp/build/compose/binaries/main/deb -type f -name '*.deb' -print -quit)"
+          rpm="$(find composeApp/build/compose/binaries/main/rpm -type f -name '*.rpm' -print -quit)"
+          test -s "$deb"
+          test -s "$rpm"
+          cp "$deb" "release-assets/mawjic-linux-${arch}-0.1.0.deb"
+          cp "$rpm" "release-assets/mawjic-linux-${arch}-0.1.0.rpm"
+          scripts/package-appimage.sh "$app_root" "$arch" "0.1.0" "$APPIMAGETOOL_PATH" release-assets
+      - name: Inspect Linux packages and architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          arch='${{ matrix.arch }}'
+          deb="release-assets/mawjic-linux-${arch}-0.1.0.deb"
+          rpm_file="release-assets/mawjic-linux-${arch}-0.1.0.rpm"
+          appimage="release-assets/mawjic-linux-${arch}-0.1.0.AppImage"
+          dpkg-deb --info "$deb"
+          rpm -qpi "$rpm_file"
+          if [[ "$arch" == amd64 ]]; then expected_deb=amd64; expected_rpm=x86_64; else expected_deb=arm64; expected_rpm=aarch64; fi
+          test "$(dpkg-deb -f "$deb" Architecture)" = "$expected_deb"
+          test "$(rpm -qp --qf '%{ARCH}' "$rpm_file")" = "$expected_rpm"
+          test -s "$appimage"
+      - uses: actions/upload-artifact@v7
+        name: Upload Linux packages (AppImage, DEB, RPM)
+        with:
+          name: mawjic-linux-${{ matrix.arch }}-ci
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 7
+
+  android-arm64:
+    name: Android ARM64 debug APK and common tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+      - name: Install Android SDK and NDK targets
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          validate-wrappers: false
+      - name: Build Android ARM64 APK
+        id: android-build
+        run: ./gradlew --stacktrace :composeApp:assembleDebug -PversionName=0.1.0 -PversionCode=1
+      - name: Diagnose Compose runtime only if Android build fails
+        if: failure()
+        continue-on-error: true
+        run: ./gradlew --stacktrace :composeApp:dependencyInsight --configuration debugRuntimeClasspath --dependency androidx.compose.runtime:runtime-saveable
+      - name: Verify development APK architecture
+        run: |
+          set -euo pipefail
+          APK=composeApp/build/outputs/apk/debug/composeApp-debug.apk
+          test -s "$APK"
+          unzip -Z1 "$APK" | grep -Fx 'lib/arm64-v8a/libmawjic_core.so'
+          if unzip -Z1 "$APK" | grep -Eq '^lib/(armeabi-v7a|x86|x86_64)/'; then exit 1; fi
+      - name: Run Kotlin common tests on desktop JVM
+        run: ./gradlew :composeApp:desktopTest
+      - uses: actions/upload-artifact@v7
+        name: Upload Android ARM64 debug APK (not a release)
+        with:
+          name: mawjic-android-arm64-debug-ci
+          path: composeApp/build/outputs/apk/debug/composeApp-debug.apk
+          if-no-files-found: error
+          retention-days: 7

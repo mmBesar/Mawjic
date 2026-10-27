@@ -1,0 +1,19 @@
+[package]
+name = "mawjic-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+description = "Dependency-light M3U and XMLTV parser core for Mawjic"
+
+[lib]
+name = "mawjic_core"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

@@ -1,0 +1,5 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="news.one" tvg-name="News One" tvg-logo="https://images.example.invalid/news-one.svg" group-title="News",News One HD
+https://streams.example.invalid/news-one/index.m3u8
+#EXTINF:-1 tvg-id="sports.one" group-title="Sports",Sports One
+https://streams.example.invalid/sports-one/index.m3u8
