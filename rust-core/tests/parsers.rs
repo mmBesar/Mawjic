@@ -14,6 +14,17 @@ fn m3u_fixture_is_parsed_through_the_public_abi() {
 }
 
 #[test]
+fn xmltv_external_doctype_is_ignored_without_network_resolution() {
+    let xml = CString::new(r#"<!DOCTYPE tv SYSTEM "https://example.invalid/xmltv.dtd"><tv><channel id="news"><display-name>News</display-name></channel><programme start="20240101010000 +0000" stop="20240101020000 +0000" channel="news"><title>Morning headlines</title></programme></tv>"#).unwrap();
+    let output = unsafe { iptv_parse_xmltv(xml.as_ptr()) };
+    assert!(!output.is_null());
+    let json = unsafe { CStr::from_ptr(output) }.to_str().unwrap().to_owned();
+    unsafe { iptv_string_free(output) };
+    assert!(json.contains("Morning headlines"), "{json}");
+    assert!(!json.contains("\"error\""), "external DTD should be skipped, not resolved: {json}");
+}
+
+#[test]
 fn xmltv_fixture_exposes_channel_and_programme_artwork() {
     let input = CString::new(include_str!("fixtures/sample.xml")).unwrap();
     let output = unsafe { iptv_parse_xmltv(input.as_ptr()) };

@@ -57,10 +57,13 @@ actual fun PlaybackPane(
             val socket = dir.resolve("mpv.sock")
             socketPath = socket.toString()
             requestedUrl = url
-            val launched = ProcessBuilder(
+            val command = mutableListOf(
                 "mpv", "--force-window=yes", "--fullscreen", "--title=Mawjic · $channelName",
-                "--input-ipc-server=${socket.toAbsolutePath()}", "--", url,
-            ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+                "--input-ipc-server=${socket.toAbsolutePath()}",
+            )
+            if (Platform.getPreference("allowInsecureTls", "false").toBoolean()) command += "--tls-verify=no"
+            command += listOf("--", url)
+            val launched = ProcessBuilder(command).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start()
             process = launched
             state = "mpv is playing in its fullscreen window. Audio/subtitles use mpv's on-screen controls."
             val exit = withContext(Dispatchers.IO) { launched.waitFor() }

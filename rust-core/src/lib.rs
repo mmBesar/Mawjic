@@ -167,6 +167,24 @@ fn decode_xml(s: &str) -> Result<String, String> {
     Ok(out)
 }
 
+fn doctype_declaration_end(input: &str) -> Result<usize, String> {
+    let bytes = input.as_bytes();
+    let mut quote: Option<u8> = None;
+    for (index, byte) in bytes.iter().copied().enumerate().skip(9) {
+        if let Some(active_quote) = quote {
+            if byte == active_quote { quote = None; }
+            continue;
+        }
+        match byte {
+            b'\'' | b'"' => quote = Some(byte),
+            b'[' => return Err("Internal XMLTV DTD subsets and entity declarations are disabled".into()),
+            b'>' => return Ok(index),
+            _ => {}
+        }
+    }
+    Err("Unterminated XML DOCTYPE declaration".into())
+}
+
 fn xml_events(s: &str) -> Result<Vec<XmlEvent>, String> {
     let mut events = Vec::new();
     let mut i = 0;
@@ -197,8 +215,15 @@ fn xml_events(s: &str) -> Result<Vec<XmlEvent>, String> {
             let end = after.find("?>").ok_or_else(|| "Unterminated XML processing instruction".to_string())?;
             i += end + 2; continue;
         }
-        if after.as_bytes().get(..9).is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"<!DOCTYPE")) || after.starts_with("<!ENTITY") {
-            return Err("DTD/entity declarations are disabled for untrusted XMLTV input".into());
+        // XMLTV files commonly declare an external xmltv.dtd. Ignore that declaration,
+        // but never fetch or resolve it. Internal subsets can define entities and remain forbidden.
+        if after.as_bytes().get(..9).is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"<!DOCTYPE")) {
+            let end = doctype_declaration_end(after)?;
+            i += end + 1;
+            continue;
+        }
+        if after.as_bytes().get(..8).is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"<!ENTITY")) {
+            return Err("Entity declarations are disabled for untrusted XMLTV input".into());
         }
         let end = after.find('>').ok_or_else(|| "Unterminated XML tag".to_string())?;
         let inside = after[1..end].trim();

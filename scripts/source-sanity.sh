@@ -49,6 +49,11 @@ assert 'color.toArgb().toLong()' in android_platform
 for deprecated_alias in ('implementation(compose.runtime)', 'implementation(compose.foundation)', 'implementation(compose.material3)', 'implementation(compose.ui)', 'implementation(compose.components.resources)'):
     assert deprecated_alias not in build, f'deprecated Compose alias remains: {deprecated_alias}'
 assert 'TargetFormat.Rpm' in build
+assert 'gzip XMLTV' in (root / 'README.md').read_text(encoding='utf-8')
+assert 'Mawjic artwork failed' in app and 'AsyncImagePainter.State.Error' in app
+assert 'sourceReloadVersion' in app and 'hourWidth.value.toDouble()' in app
+assert 'GZIPInputStream' in (root / 'composeApp/src/androidMain/kotlin/app/mawjic/tv/Platform.android.kt').read_text(encoding='utf-8')
+assert 'GZIPInputStream' in (root / 'composeApp/src/desktopMain/kotlin/app/mawjic/tv/Platform.desktop.kt').read_text(encoding='utf-8')
 root_build = (root / 'build.gradle.kts').read_text(encoding='utf-8')
 assert 'id("org.jetbrains.compose") version "1.10.3" apply false' in root_build
 assert 'packageTarGz' not in build

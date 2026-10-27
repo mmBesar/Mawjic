@@ -20,6 +20,7 @@ data class AppSettings(
     val appearance: String = "System",
     val accentSource: String = "Catppuccin",
     val language: String = "English",
+    val allowInsecureTls: Boolean = false,
     val playlistSource: String = "",
     val guideSource: String = "",
     val favourites: Set<String> = emptySet(),
@@ -30,6 +31,7 @@ data class AppSettings(
         Platform.setPreference("appearance", appearance)
         Platform.setPreference("accentSource", accentSource)
         Platform.setPreference("language", language)
+        Platform.setPreference("allowInsecureTls", allowInsecureTls.toString())
         Platform.setPreference("playlistSource", playlistSource)
         Platform.setPreference("guideSource", guideSource)
         Platform.setPreference("favourites", favourites.joinToString("\n"))
@@ -43,6 +45,7 @@ data class AppSettings(
                 appearance = Platform.getPreference("appearance", "System").takeIf(appearanceModes::contains) ?: "System",
                 accentSource = Platform.getPreference("accentSource", "Catppuccin").takeIf(accentSources::contains) ?: "Catppuccin",
                 language = Platform.getPreference("language", "English").takeIf(supportedLanguages::contains) ?: "English",
+                allowInsecureTls = Platform.getPreference("allowInsecureTls", "false").toBoolean(),
                 playlistSource = Platform.getPreference("playlistSource", ""),
                 guideSource = Platform.getPreference("guideSource", ""), favourites = favs,
             )

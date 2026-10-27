@@ -8,13 +8,15 @@ Mawjic is a cross-platform IPTV client for Linux AMD64/ARM64 and Android ARM64, 
 
 ## What is implemented in source
 
-- Rust C ABI for M3U/M3U8 `#EXTINF` metadata and XMLTV channel/programme parsing, including common XML entities, numeric offsets, bounded input, and disabled DTD/external entity declarations.
+- Rust C ABI for M3U/M3U8 `#EXTINF` metadata and XMLTV channel/programme parsing, including common XML entities, numeric offsets, bounded input, and safe handling of external XMLTV DTD declarations (ignored without fetching); internal DTD subsets and entity declarations remain disabled.
 - Kotlin multiplatform UI with Live TV, favourites, channel/group search, current/next programme details, a six-hour horizontally scrollable EPG timeline, programme artwork, and playback/channel switching UI.
+- Responsive UI: compact screens use bottom navigation and stacked channel cards; wide screens keep the sidebar and richer channel rows.
+- An explicit, disabled-by-default self-signed TLS option is available for trusted servers. It weakens certificate-chain verification for HTTPS sources/playback; hostname verification remains enabled.
 - Channel logo resolution from M3U `tvg-logo`, then XMLTV channel icons; programme artwork from XMLTV `<icon src="…">`. Coil loads remote images with its image-loader caching. No third-party site scraping or invented artwork endpoints are used.
 - Persistent settings for all four Catppuccin flavours and all fourteen named accents, system/light/dark/AMOLED appearance, Android Dynamic Color, and Linux XDG Desktop Portal accent/colour-scheme integration with fallbacks.
 - Android playback via AndroidX Media3/ExoPlayer and HLS, DASH, RTSP modules. Audio and subtitle track selection are provided by Media3 controls. The Android release build is configured to contain only ARM64 native libraries.
 - Linux playback via the locally installed `mpv` executable. The stream opens in an `mpv` fullscreen window; its on-screen controls provide audio/subtitle selection. Linux channel-switch buttons send commands over a private Unix-domain socket.
-- Local file picker support on desktop and Android, URL sources, and bounded reads for playlists/guides.
+- Local file picker support on desktop and Android, URL sources, bounded reads, and transparent `.xml.gz`/gzip XMLTV input support with a separate decompressed-size limit.
 - Rust parser unit/integration tests, common Kotlin integration tests, Linux package tasks, GitHub CI, and a tag-triggered signed release workflow.
 
 ## Deliberate scope limits
@@ -126,6 +128,13 @@ HTTP is enabled because many IPTV setups expose HTTP endpoints. Prefer HTTPS whe
 
 Open **Settings → Language** and choose **English** or **العربية**. The selection is stored alongside other preferences and takes effect immediately. Arabic mode switches the Compose layout direction to RTL and translates interface labels, settings, source dialogs, empty states, and programme controls. Proper names and source-provided channel/programme metadata are intentionally not machine-translated. Arabic glyphs use the platform font fallback; Linux systems may need an Arabic-capable font installed. The language preference is covered by the common settings round-trip test, but the Kotlin test has not run in this environment.
 
+## Troubleshooting sources, logos, EPG, and playback
+
+- **HTTPS playlist/guide fails:** keep HTTPS where available. Under **Settings**, enable **Allow self-signed HTTPS certificates** only when you trust the server/network, then reopen **Add source** and press **Save & load** to retry. This unsafe option accepts otherwise-untrusted certificate chains for app source and playback requests; hostname validation remains on. Prefer installing the server's correct certificate or trusted CA. Do not rewrite HTTPS URLs to HTTP as a workaround unless the provider explicitly requires plain HTTP.
+- **Linux channel logos missing:** the image loader now logs an error with only the image host and exception type, and displays the channel initial as a fallback. Launch the AppImage from a terminal and look for `Mawjic artwork failed`. This avoids logging full URLs that may contain credentials. Confirm `tvg-logo` is an absolute `http://` or `https://` URL. Android and Linux use different Ktor engines, so a loader error should be diagnosed instead of assuming the M3U parser dropped the logo.
+- **EPG unavailable:** channels are retained even when guide loading fails. Check the source-status message below the channel filters. Local uncompressed `.xml`/`.xmltv` and gzip XMLTV (`.xml.gz`) are supported. Ordinary external XMLTV `DOCTYPE` references are ignored without network resolution; internal DTD/entity declarations are rejected for safety. The current parser is a lightweight XMLTV parser, not a fully validating XML implementation.
+- **Android stream won't play:** Media3 supports formats/containers only when the selected modules and device decoders support them. Use **Open in external player** to hand the stream URL to an installed player. Unsupported schemes also offer that action. A provider that requires special request headers or authentication may still need future per-source header settings.
+
 ## Theme behaviour
 
 - Catppuccin flavour + accent are stored locally. The full list is `Latte`, `Frappé`, `Macchiato`, `Mocha`, with accents `Rosewater`, `Flamingo`, `Pink`, `Mauve`, `Red`, `Maroon`, `Peach`, `Yellow`, `Green`, `Teal`, `Sky`, `Sapphire`, `Blue`, `Lavender`.
@@ -164,3 +173,14 @@ Replace `USER/REPOSITORY` with your chosen GitHub repository. The GitHub workflo
 ## Build compatibility baseline
 
 The initial CI baseline pins Compose Multiplatform 1.10.3, which maps to Jetpack Compose 1.10.5 and Lifecycle 2.10.0 in JetBrains release documentation. Compose Material 3 is pinned separately to stable version 1.9.0, and runtime/foundation/UI/resources use direct coordinates rather than deprecated plugin aliases. It avoids the 1.12 Compose runtime line that required AGP 9.1.0 in earlier CI logs. This version combination must still pass the fresh GitHub Actions build before it is considered verified.
+
+
+## IPTV UX research
+
+Mawjic follows established usability patterns without copying third-party source code:
+
+- [IPTVMine-Pro](https://github.com/samyak2403/IPTVMine-Pro) separates the player from playlist/group/search features and targets distinct phone/TV layouts. Mawjic adopts the dedicated player and category/search patterns while adding EPG and themes.
+- [IPTVnator](https://github.com/4gray/iptvnator) documents local/remote M3U import, XMLTV EPG, timeline/grid browsing, and external players such as MPV/VLC.
+- [Kodi PVR IPTV Simple](https://github.com/kodi-pvr/pvr.iptvsimple) documents remote/local XMLTV sources, EPG caching/time shift, and explicit logo-source precedence. These are useful follow-up directions for Mawjic.
+
+Mawjic does not provide playlists or scrape third-party metadata sites. Its EPG parser skips ordinary external XMLTV DTD declarations without fetching them and rejects internal DTD/entity declarations.

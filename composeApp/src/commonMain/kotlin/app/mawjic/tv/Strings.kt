@@ -8,6 +8,11 @@ internal val LocalAppLanguage = staticCompositionLocalOf { "English" }
 internal val supportedLanguages = listOf("English", "Arabic")
 
 private val arabic: Map<String, String> = mapOf(
+    "Good evening" to "مساء الخير",
+    "Your favourites" to "قنواتك المفضلة",
+    "What's on now — and what's coming up." to "ما يُعرض الآن وما سيُعرض لاحقًا.",
+    "The channels you keep close." to "القنوات التي تتابعها باستمرار.",
+    "Live television, without the clutter." to "تلفزيون مباشر بتجربة بسيطة.",
     "Live TV" to "التلفزيون المباشر",
     "TV Guide" to "دليل التلفزيون",
     "Favourites" to "المفضلة",
@@ -34,6 +39,10 @@ private val arabic: Map<String, String> = mapOf(
     "Add playlist & guide" to "أضف قائمة التشغيل والدليل",
     "Details" to "التفاصيل",
     "Watch" to "شاهد",
+    "Open in external player" to "فتح في مشغل خارجي",
+    "Allow self-signed HTTPS certificates" to "السماح بشهادات HTTPS ذاتية التوقيع",
+    "Unsafe: disables certificate-chain verification for sources and playback. Keep off unless you trust the server/network." to "خيار غير آمن: يعطّل التحقق من سلسلة الشهادة للمصادر والتشغيل. اتركه مغلقًا ما لم تكن تثق بالخادم والشبكة.",
+    "Self-signed TLS is disabled by default. The unsafe opt-in is for trusted servers only; certificate hostname checks remain enabled." to "الافتراضي هو تعطيل شهادات TLS الذاتية. استخدم الخيار غير الآمن للخوادم الموثوقة فقط؛ يظل التحقق من اسم المضيف فعالًا.",
     "No programme information" to "لا تتوفر معلومات عن البرنامج",
     "Guide not available" to "الدليل غير متاح",
     "Next · " to "التالي · ",
@@ -43,6 +52,7 @@ private val arabic: Map<String, String> = mapOf(
     "Playback & sources" to "التشغيل والمصادر",
     "Android uses Media3. Linux opens streams in mpv. Add M3U and XMLTV sources from the ‘Add source’ action in the top bar." to "يستخدم Android مكتبة Media3، بينما يفتح Linux البث عبر mpv. أضف مصادر M3U وXMLTV من زر «إضافة مصدر» في الشريط العلوي.",
     "Artwork is loaded from trusted HTTP(S) logo and XMLTV icon URLs. No third-party scraping is performed." to "تُحمَّل الصور من روابط شعارات موثوقة وحقول XMLTV. لا يجري كشط مواقع خارجية.",
+    "Artwork is loaded from playlist and XMLTV image URLs. No third-party scraping is performed." to "تُحمَّل الصور من روابط القائمة ودليل XMLTV. لا يجري كشط مواقع خارجية.",
     "Back to TV" to "العودة إلى التلفزيون",
     "LANGUAGE" to "اللغة",
     "English" to "English",
@@ -61,6 +71,7 @@ private val arabic: Map<String, String> = mapOf(
     "Dynamic colour requires Android 12+. Linux Native System Colours reads XDG Desktop Portal settings; unavailable values fall back to Catppuccin. AMOLED keeps the main backgrounds pure black." to "تتطلب الألوان الديناميكية Android 12 أو أحدث. تقرأ ألوان نظام Linux إعدادات XDG Desktop Portal، وتعود إلى Catppuccin عند عدم توفرها. يستخدم AMOLED الأسود الخالص للخلفيات الرئيسية.",
     "Connect your TV sources" to "ربط مصادر التلفزيون",
     "Use an HTTP(S) URL, a local file path, file:// URI, or an Android document URI." to "استخدم رابط HTTP(S)، أو مسار ملف محلي، أو URI من نوع file://، أو URI لمستند Android.",
+    "Use an HTTP(S) URL, a local file path, file:// URI, or an Android document URI. Gzip XMLTV (.xml.gz) is supported." to "استخدم رابط HTTP(S)، أو مسار ملف محلي، أو URI من نوع file://، أو URI لمستند Android. يدعم التطبيق XMLTV المضغوط بصيغة gzip.",
     "M3U / M3U8 playlist *" to "قائمة تشغيل M3U / M3U8 *",
     "XMLTV guide (optional)" to "دليل XMLTV (اختياري)",
     "Browse" to "استعراض",

@@ -1,5 +1,7 @@
 package app.mawjic.tv
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.BackHandler
@@ -51,14 +53,28 @@ actual fun PlaybackPane(
 ) {
     val context = LocalContext.current
     val scheme = url.substringBefore(':', "").lowercase()
-    if (scheme !in setOf("http", "https", "rtsp", "file", "content")) {
-        AlertDialog(onDismissRequest = onClose, title = { Text("Unsupported stream") },
-            text = { Text("Android Media3 does not natively handle the '$scheme' scheme in this player.") },
-            confirmButton = { TextButton(onClick = onClose) { Text("Close") } })
-        return
-    }
     var retryCount by remember(url) { mutableIntStateOf(0) }
     var lastError by remember(url) { mutableStateOf("") }
+    if (scheme !in setOf("http", "https", "rtsp", "file", "content")) {
+        AlertDialog(
+            onDismissRequest = onClose,
+            title = { Text("Unsupported in-app stream") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Android Media3 does not natively handle the '$scheme' scheme in this player.")
+                    if (lastError.isNotBlank()) Text(lastError, color = MaterialTheme.colorScheme.error)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    runCatching { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, Uri.parse(url)), "Open stream with")) }
+                        .onFailure { lastError = "Could not open an external player: ${it::class.simpleName ?: "error"}" }
+                }) { Text(tr("Open in external player")) }
+            },
+            dismissButton = { TextButton(onClick = onClose) { Text("Close") } },
+        )
+        return
+    }
     val player = remember(url) {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(url))
@@ -104,6 +120,12 @@ actual fun PlaybackPane(
                     TextButton(onClick = { TrackSelectionDialogBuilder(context, "Audio track", player, C.TRACK_TYPE_AUDIO).build().show() }) { Text("Audio", color = Color.White) }
                     TextButton(onClick = { TrackSelectionDialogBuilder(context, "Subtitles", player, C.TRACK_TYPE_TEXT).build().show() }) { Text("CC", color = Color.White) }
                 }
+                // Some providers expose stream variants Media3 cannot play. Let the user hand off explicitly.
+                OutlinedButton(onClick = {
+                    runCatching {
+                        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, Uri.parse(url)), "Open stream with"))
+                    }.onFailure { lastError = "No external player can handle this stream: ${it.message ?: "unknown error"}" }
+                }) { Text(tr("Open in external player"), color = Color.White) }
                 if (lastError.isNotBlank()) Text("Playback error: $lastError · retry $retryCount/3", color = Color.White)
             }
         }

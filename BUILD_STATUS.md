@@ -1,6 +1,6 @@
 # Mawjic build status
 
-**Status: clean source baseline prepared; full builds still require GitHub Actions verification.** This environment does not have Cargo/Rust, Gradle, Android SDK/NDK, RPM, or AppImage tooling installed, and shell DNS cannot reach download hosts. Static checks are run locally; no APK or Linux package is claimed as built here.
+**Status: maintainer-reported baseline CI passed; this usability follow-up is not yet verified.** The authoring environment cannot run Cargo/Rust, Gradle, Android SDK/NDK, RPM, or AppImage builds. Distinguish the previously passing hosted build from this new source update; the changes below require a new CI run and manual AppImage/phone validation.
 
 ## Confirmed failures from the previous repository's GitHub Actions logs
 
@@ -29,7 +29,7 @@ Static checks run successfully in this workspace:
 - Gradle version/checksum consistency check and static workflow invariant checks.
 - Archive integrity check after ZIP creation.
 
-Not run here: Cargo tests/Clippy/audit, Kotlin compilation, Compose desktop tests, Android APK build, native jpackage tasks, AppImage generation, package installation, APK signature verification, or device playback. The environment has no Rust/Cargo, Gradle distribution, Android SDK/NDK or RPM/AppImage tools, and network downloads are unavailable. A green GitHub Actions run is the first full compile/test verification.
+The authoring environment cannot run Cargo/Gradle, Android SDK/NDK, RPM or AppImage tooling. The maintainer reported that a prior GitHub Actions run passed Rust format/tests/Clippy/audit, Linux AMD64/ARM64 packages and Android ARM64 compilation. The AppImage was then launched manually and exposed a theme color-conversion crash; the earlier runtime patch corrected that and the maintainer subsequently reported CI passing. The new usability changes in the final section still need fresh hosted CI and manual runtime validation.
 
 ## Follow-up: Linux runtime crash and Android dependency (2026-10-27)
 
@@ -43,3 +43,29 @@ Not run here: Cargo tests/Clippy/audit, Kotlin compilation, Compose desktop test
 2. Linux AMD64 and ARM64 must build desktop tests, `createDistributable`, DEB, RPM, and AppImage; verify architectures and AppImage extraction.
 3. Android ARM64 must build a debug APK with only `lib/arm64-v8a/libmawjic_core.so` and pass common Kotlin tests.
 4. Only after those are green should a signed tag release be considered. Do not create a release tag before Android release signing secrets are configured and CI passes.
+
+
+## Real-device feedback follow-up (2026-10-27)
+
+Reported by maintainer after Linux and Android artifacts launched:
+
+- XMLTV sources still failed. The parser rejected all `DOCTYPE` declarations, including ordinary external `xmltv.dtd` references. It now skips external declarations without fetching them; internal DTD subsets/entities remain rejected. Playlist channels are now committed before optional guide loading so an EPG failure cannot blank the channel list. Added Rust ABI and common-parser regression fixtures.
+- Android layout hid much of the content behind a fixed sidebar and wide channel rows. Compact screens now use bottom navigation, omit the hero card, and stack channel rows; the guide's channel column is narrower on compact layouts.
+- Added an optional Android external-player chooser for streams Media3 cannot play.
+- Added a persistent, explicitly unsafe self-signed TLS preference (off by default). It relaxes certificate-chain checks for source reads and HTTP-based playback, but retains hostname verification; prefer installing a proper CA/server certificate. Linux mpv receives `--tls-verify=no` only when the user opts in. Image loading still requires real-world verification on Linux.
+- Researched IPTVMine-Pro, IPTVnator, Kodi PVR IPTV Simple, Coil network setup, and Android Network Security Configuration. See `docs/UX_RESEARCH.md`.
+- Reported Gradle 8.14.6 “out-of-date” notices are annotations, not build failures. Keep the currently passing wrapper; Kotlin 2.4.21's fully supported Gradle range ends at 9.7.0, but AGP compatibility must also be checked before moving to Gradle 9.
+
+These changes have received static review only in this environment. Run hosted Rust tests/Clippy, Desktop tests and package checks, and Android APK build after applying; then launch the new AppImage and test HTTP/HTTPS, local/remote XMLTV, logos, external playback, and phone layout. Do not claim runtime verification before those checks pass.
+
+
+## UX/runtime follow-up from maintainer testing (2026-10-27)
+
+- The maintainer reports a successful baseline CI for Rust/audit, Linux AMD64/ARM64 packaging and Android ARM64 compilation. The Gradle 8.14.6 annotation is informational, not a build failure: keep the passing 8.14 line while Kotlin 2.4.21 and AGP 8.11.1 are pinned; do not jump to Gradle 9 until the Kotlin/AGP compatibility matrix is deliberately upgraded together.
+- XMLTV: skip a standard external `DOCTYPE` without fetching it; continue rejecting internal subsets/entities. Commit playlist channels before optional guide parsing. Add gzip XMLTV (`.xml.gz`) support with 64 MiB raw and decompressed limits.
+- Phone UI: hide the fixed desktop sidebar on compact screens, use bottom navigation and stacked channel rows, scroll the settings page, and calculate EPG positions using its actual compact/wide hour width. These changes need Android-device validation.
+- Playback: Android provides an external-player chooser for supported stream URLs and for schemes Media3 does not support in-app. Real provider/codec playback remains unverified.
+- Artwork: Linux failures render the channel initial and log only host + exception type, never the URL path/query. This is a diagnostic step, not a claim that every logo loads. The next AppImage run should be launched from a terminal to capture `Mawjic artwork failed` messages.
+- TLS: self-signed/untrusted certificate-chain acceptance is off by default and intentionally unsafe; hostname verification remains enabled. Reloading source settings now retries source loads after a TLS setting change. Correct server certificates remain the preferred solution.
+- Research references and product choices are in `docs/UX_RESEARCH.md`. No third-party source code was copied.
+- Not verified here: Rust compilation/tests, Kotlin compilation, AppImage launch, real `.xml.gz` feed, Linux remote logos, self-signed playback, or phone layout. Run GitHub Actions and manual runtime checks before declaring complete.

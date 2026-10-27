@@ -24,7 +24,7 @@ https://example.test/kids.m3u8
 
     @Test
     fun nativeXmltvParserNormalizesExplicitOffsetsAndArtwork() {
-        val input = """<?xml version="1.0"?><tv>
+        val input = """<?xml version="1.0"?><!DOCTYPE tv SYSTEM "https://example.invalid/xmltv.dtd"><tv>
 <channel id="news"><display-name>News &amp; More</display-name><icon src="https://example.test/channel.png"/></channel>
 <programme start="20240101010000 +0200" stop="20240101020000 +0200" channel="news"><title>Morning show</title><desc>Local &amp; world</desc><icon src="https://example.test/programme.jpg"/></programme>
 </tv>"""
@@ -57,7 +57,7 @@ https://example.test/kids.m3u8
         val original = AppSettings(
             flavour = "Frappé", accent = "Teal", appearance = "AMOLED Black", accentSource = "Catppuccin",
             playlistSource = "https://source.test/playlist.m3u", guideSource = "https://source.test/guide.xml",
-            favourites = setOf("https://source.test/channel.m3u8"), language = "Arabic",
+            favourites = setOf("https://source.test/channel.m3u8"), language = "Arabic", allowInsecureTls = true,
         )
         original.save()
         val loaded = AppSettings.load()
@@ -66,6 +66,7 @@ https://example.test/kids.m3u8
         assertEquals(original.appearance, loaded.appearance)
         assertEquals(original.accentSource, loaded.accentSource)
         assertEquals(original.language, loaded.language)
+        assertEquals(original.allowInsecureTls, loaded.allowInsecureTls)
         assertEquals(original.playlistSource, loaded.playlistSource)
         assertEquals(original.guideSource, loaded.guideSource)
         assertEquals(original.favourites, loaded.favourites)

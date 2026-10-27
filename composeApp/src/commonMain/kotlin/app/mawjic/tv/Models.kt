@@ -162,6 +162,7 @@ expect fun SystemBarsEffect(backgroundArgb: Long, useDarkIcons: Boolean)
 expect object Platform {
     fun getPreference(key: String, defaultValue: String): String
     fun setPreference(key: String, value: String)
+    fun configureTlsPolicy()
     suspend fun readText(source: String): String
     fun parseM3u(text: String): String
     fun parseXmltv(text: String): String

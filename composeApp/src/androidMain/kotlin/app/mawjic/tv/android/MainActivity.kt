@@ -11,6 +11,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Platform.initialize(applicationContext)
         Platform.setPreference("platform", "android")
+        Platform.configureTlsPolicy()
         setContent { MawjicApp() }
     }
 }

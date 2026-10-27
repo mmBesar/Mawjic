@@ -23,9 +23,16 @@ import com.sun.jna.Native
 import com.sun.jna.Pointer
 import java.io.File
 import java.io.ByteArrayOutputStream
+import java.io.ByteArrayInputStream
+import java.util.zip.GZIPInputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -55,12 +62,36 @@ actual fun DocumentPickerButton(label: String, onSelected: (String) -> Unit) {
     TextButton(onClick = { launcher.launch(arrayOf("*/*")) }) { Text(label) }
 }
 
+internal object InsecureTlsSupport {
+    // Keep the original trust context so turning the preference off restores normal verification.
+    val systemContext: SSLContext = SSLContext.getDefault()
+    val trustManager: X509TrustManager = object : X509TrustManager {
+        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) = Unit
+        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) = Unit
+        override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+    }
+    val insecureContext: SSLContext = SSLContext.getInstance("TLS").apply {
+        init(null, arrayOf(trustManager), SecureRandom())
+    }
+}
+
 actual object Platform {
     private lateinit var appContext: Context
     fun initialize(context: Context) { appContext = context.applicationContext }
     fun documentContext(): Context = appContext
     actual fun getPreference(key: String, defaultValue: String): String = appContext.getSharedPreferences("mawjic", Context.MODE_PRIVATE).getString(key, defaultValue) ?: defaultValue
-    actual fun setPreference(key: String, value: String) { appContext.getSharedPreferences("mawjic", Context.MODE_PRIVATE).edit().putString(key, value).apply() }
+    actual fun setPreference(key: String, value: String) {
+        appContext.getSharedPreferences("mawjic", Context.MODE_PRIVATE).edit().putString(key, value).apply()
+        if (key == "allowInsecureTls") configureTlsPolicy()
+    }
+
+    actual fun configureTlsPolicy() {
+        if (!::appContext.isInitialized) return
+        val context = if (getPreference("allowInsecureTls", "false").toBoolean()) InsecureTlsSupport.insecureContext else InsecureTlsSupport.systemContext
+        SSLContext.setDefault(context)
+        HttpsURLConnection.setDefaultSSLSocketFactory(context.socketFactory)
+        // Deliberately do not change the default HostnameVerifier.
+    }
 
     actual suspend fun readText(source: String): String = withContext(Dispatchers.IO) {
         require(source.isNotBlank()) { "Enter a URL or local file path." }
@@ -74,6 +105,9 @@ actual object Platform {
                 .inputStream().use { it.readBoundedUtf8() }
             source.startsWith("https://", true) || source.startsWith("http://", true) -> {
                 val connection = URL(source).openConnection() as HttpURLConnection
+                if (connection is HttpsURLConnection && getPreference("allowInsecureTls", "false").toBoolean()) {
+                    connection.sslSocketFactory = InsecureTlsSupport.insecureContext.socketFactory
+                }
                 try {
                     connection.connectTimeout = 15_000
                     connection.readTimeout = 20_000
@@ -122,8 +156,9 @@ private object NativeCore {
     }
 }
 
-private fun InputStream.readBoundedUtf8(): String {
-    val limit = 64 * 1024 * 1024
+private const val MAX_SOURCE_BYTES = 64 * 1024 * 1024
+
+private fun InputStream.readBoundedBytes(limit: Int = MAX_SOURCE_BYTES): ByteArray {
     val output = ByteArrayOutputStream()
     val buffer = ByteArray(32 * 1024)
     var total = 0
@@ -134,5 +169,14 @@ private fun InputStream.readBoundedUtf8(): String {
         require(total <= limit) { "Source exceeds the 64 MiB safety limit." }
         output.write(buffer, 0, count)
     }
-    return output.toByteArray().toString(Charsets.UTF_8)
+    return output.toByteArray()
+}
+
+private fun InputStream.readBoundedUtf8(): String {
+    val bytes = use { it.readBoundedBytes() }
+    val looksGzipped = bytes.size >= 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()
+    val decoded = if (looksGzipped) {
+        GZIPInputStream(ByteArrayInputStream(bytes)).use { it.readBoundedBytes() }
+    } else bytes
+    return decoded.toString(Charsets.UTF_8)
 }

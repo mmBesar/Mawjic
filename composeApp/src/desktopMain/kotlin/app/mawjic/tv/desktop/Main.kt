@@ -11,6 +11,7 @@ import app.mawjic.tv.MawjicApp
 
 fun main() = application {
     Platform.setPreference("platform", "desktop")
+    Platform.configureTlsPolicy()
     Window(
         onCloseRequest = ::exitApplication,
         title = "Mawjic · IPTV",
