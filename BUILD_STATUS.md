@@ -167,3 +167,9 @@ At the time this historical entry was written, the follow-ups had received stati
 - Replaced per-channel current-time marker elements with one draw-phase overlay spanning the guide, preserving horizontal alignment through the shared scroll offset.
 - Added a Desktop-only draggable scrollbar connected to the guide's `LazyListState`; Android's actual is a no-op. Added interval-boundary regression coverage and updated `source-sanity.sh` for the 12-hour contract.
 - **Not yet verified:** Kotlin compilation, hosted GitHub Actions, guide open/scroll performance on Android, and Desktop scrollbar/indicator alignment. Do not interpret static checks as device or CI validation.
+
+## Android Material 3 AlertDialog API correction (2026-10-28; awaiting CI)
+
+- Hosted CI for the UI/EPG polish update failed in Android Kotlin compilation inside `TrackSelectionDialog` in `Playback.android.kt`. The new call used `colors = AlertDialogDefaults.colors(...)`, a legacy-style parameter not present in the pinned Compose Multiplatform Material 3 `AlertDialog` API. The unsupported argument also interfered with overload resolution and produced a misleading `title` parameter diagnostic.
+- Switched the call to the supported individual parameters: `containerColor`, `titleContentColor`, and `textContentColor`; removed the unused `AlertDialogDefaults` import. Updated the source-sanity guard to prevent reintroducing the unsupported colors object.
+- This is a source-level correction informed by the compiler diagnostics and the Compose Multiplatform Material 3 API reference. **Not yet verified:** Android Kotlin compilation or the full hosted CI after this correction. Re-run GitHub Actions before considering the Stage A UI update complete. Do not run a local Gradle build for this correction; preserve the maintainer's limited bandwidth.

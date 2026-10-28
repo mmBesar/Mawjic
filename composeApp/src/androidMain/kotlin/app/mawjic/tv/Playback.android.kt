@@ -31,7 +31,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -567,11 +566,9 @@ private fun TrackSelectionDialog(
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Close")) } },
-        colors = AlertDialogDefaults.colors(
-            containerColor = scheme.surfaceContainerHigh,
-            titleContentColor = scheme.onSurface,
-            textContentColor = scheme.onSurface,
-        ),
+        containerColor = scheme.surfaceContainerHigh,
+        titleContentColor = scheme.onSurface,
+        textContentColor = scheme.onSurface,
     )
 }
 

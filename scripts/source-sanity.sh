@@ -123,7 +123,10 @@ assert 'TrackSelectionDialog(player, C.TRACK_TYPE_AUDIO, audioTrackLabel)' in an
 assert 'TrackSelectionDialog(player, C.TRACK_TYPE_TEXT, subtitlesTrackLabel)' in android_player
 assert 'TrackSelectionDialogBuilder' not in android_player, 'Android track menus must use the app Material theme'
 assert 'TrackSelectionOverride(option.group.mediaTrackGroup, listOf(option.trackIndex))' in android_player
-assert 'AlertDialogDefaults.colors(' in android_player and 'containerColor = scheme.surfaceContainerHigh' in android_player
+assert 'AlertDialogDefaults.colors(' not in android_player, 'Use supported individual AlertDialog color parameters, not a colors object'
+assert 'containerColor = scheme.surfaceContainerHigh' in android_player
+assert 'titleContentColor = scheme.onSurface' in android_player
+assert 'textContentColor = scheme.onSurface' in android_player
 assert 'setTrackTypeDisabled(trackType, true)' in android_player, 'Subtitle dialog must offer a real off option'
 assert 'Text(tr("Auto")' in android_player and 'clearOverridesOfType(trackType)' in android_player, \
     'The themed track dialog must keep an automatic/default track selection option'
