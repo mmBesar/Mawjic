@@ -30,6 +30,9 @@ class EpgIndexRangeTest {
         val channel = Channel(id = "ch", name = "Channel", url = "https://example.invalid/ch")
         assertEquals(listOf("long", "inside"), index.programmesInRange(channel, 100L, 200L).map(Programme::title))
         assertEquals(emptyList(), index.programmesInRange(channel, 200L, 200L))
-        assertEquals(emptyList(), index.programmesInRange(channel, 300L, 400L))
+        // The long programme (0..1000) overlaps this range and must be returned.
+        assertEquals(listOf("long"), index.programmesInRange(channel, 300L, 400L).map(Programme::title))
+        // This range begins after every fixture programme has ended.
+        assertEquals(emptyList(), index.programmesInRange(channel, 1_100L, 1_200L))
     }
 }
