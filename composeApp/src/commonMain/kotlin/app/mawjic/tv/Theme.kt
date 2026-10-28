@@ -138,16 +138,39 @@ fun resolveTheme(settings: AppSettings, systemTick: Int): ColorScheme {
     val bg = if (trueBlack) Color.Black else platform?.background?.let(::platformColor) ?: surface
     val cardSurface = if (trueBlack) Color.Black else platform?.surface?.let(::platformColor) ?: mantle
     val onText = platform?.onSurface?.let(::platformColor) ?: text
+    val variantSurface = if (trueBlack) color("#181818") else platform?.surfaceVariant?.let(::platformColor) ?: if (dark) color("#313244") else color("#dce0e8")
+    val containerLowest = if (trueBlack) Color.Black else if (dark) bg else color("#f7f8fa")
+    val containerLow = if (trueBlack) Color.Black else if (dark) mantle else color("#eaecf2")
+    val container = if (trueBlack) color("#080808") else cardSurface
+    val containerHigh = variantSurface
+    val containerHighest = if (trueBlack) color("#202020") else if (dark) color("#36384a") else color("#d2d6e0")
     val scheme = if (dark) darkColorScheme() else lightColorScheme()
     return scheme.copy(
         primary = accent,
         onPrimary = contrastingText(accent),
+        primaryContainer = accent.copy(alpha = if (dark) 0.24f else 0.16f),
+        onPrimaryContainer = onText,
         secondary = platform?.secondary?.let(::platformColor) ?: accent.copy(alpha = 0.82f),
+        secondaryContainer = accent.copy(alpha = if (dark) 0.18f else 0.12f),
+        onSecondaryContainer = onText,
+        tertiary = accent,
+        tertiaryContainer = accent.copy(alpha = if (dark) 0.16f else 0.10f),
+        onTertiaryContainer = onText,
         background = bg,
         surface = cardSurface,
-        surfaceVariant = if (trueBlack) color("#101010") else platform?.surfaceVariant?.let(::platformColor) ?: if (dark) color("#313244") else color("#dce0e8"),
+        surfaceVariant = variantSurface,
+        surfaceDim = if (trueBlack) Color.Black else bg,
+        surfaceBright = if (trueBlack) color("#242424") else if (dark) color("#3a3d52") else Color.White,
+        surfaceContainerLowest = containerLowest,
+        surfaceContainerLow = containerLow,
+        surfaceContainer = container,
+        surfaceContainerHigh = containerHigh,
+        surfaceContainerHighest = containerHighest,
+        surfaceTint = accent,
         onBackground = platform?.onBackground?.let(::platformColor) ?: onText,
         onSurface = onText,
+        onSurfaceVariant = onText.copy(alpha = 0.84f),
         outline = platform?.outline?.let(::platformColor) ?: if (dark) color("#585b70") else color("#9ca0b0"),
+        outlineVariant = if (trueBlack) color("#333333") else if (dark) color("#45475a") else color("#c4c8d2"),
     )
 }

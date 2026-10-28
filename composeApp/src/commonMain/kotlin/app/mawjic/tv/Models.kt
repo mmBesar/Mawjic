@@ -34,10 +34,17 @@ data class GuideData(val channelLogos: Map<String, String>, val channelNames: Ma
 
 /** Visible EPG horizon. The window starts at the previous half-hour boundary and spans 12 hours. */
 internal const val GUIDE_TIMELINE_HOURS = 12
+internal const val GUIDE_TIMELINE_TICK_SECONDS = 300L
 private const val GUIDE_TIMELINE_SECONDS_PER_HOUR = 3600L
 private const val GUIDE_TIMELINE_ALIGNMENT_SECONDS = 1800L
 
 internal data class GuideTimelineRange(val startEpoch: Long, val endEpoch: Long)
+
+/** Tick timestamps at five-minute intervals, including the end boundary. */
+internal fun guideTimelineTicks(rangeStartEpochSeconds: Long): List<Long> =
+    (0..(GUIDE_TIMELINE_HOURS * 12)).map { index ->
+        rangeStartEpochSeconds + index * GUIDE_TIMELINE_TICK_SECONDS
+    }
 
 internal fun guideTimelineRange(nowEpochSeconds: Long): GuideTimelineRange {
     val start = nowEpochSeconds - (nowEpochSeconds % GUIDE_TIMELINE_ALIGNMENT_SECONDS)

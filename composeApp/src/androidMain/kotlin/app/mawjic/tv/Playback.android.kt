@@ -22,15 +22,21 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -66,12 +72,13 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
-import androidx.media3.ui.TrackSelectionDialogBuilder
 
 private fun Context.findActivity(): Activity? {
     var current: Context? = this
@@ -195,6 +202,8 @@ actual fun PlaybackPane(
         }
     }
     var showOsd by remember(url) { mutableStateOf(true) }
+    var showAudioTracks by remember(url) { mutableStateOf(false) }
+    var showSubtitleTracks by remember(url) { mutableStateOf(false) }
     var isFullscreen by remember(url) { mutableStateOf(false) }
     // A fullscreen request rotates phones to landscape without permanently locking
     // the app; the previous Activity request is restored on exit and disposal.
@@ -409,8 +418,8 @@ actual fun PlaybackPane(
                     ) {
                         TextButton(onClick = { revealOsd(); previousChannel?.let(onChannelSelected) }, enabled = previousChannel != null) { Text("← ${tr("Previous")}", color = Color.White) }
                         TextButton(onClick = { revealOsd(); nextChannel?.let(onChannelSelected) }, enabled = nextChannel != null) { Text("${tr("Next")} →", color = Color.White) }
-                        TextButton(onClick = { revealOsd(); TrackSelectionDialogBuilder(context, audioTrackLabel, player, C.TRACK_TYPE_AUDIO).build().show() }) { Text(audioTrackLabel, color = Color.White) }
-                        TextButton(onClick = { revealOsd(); TrackSelectionDialogBuilder(context, subtitlesTrackLabel, player, C.TRACK_TYPE_TEXT).build().show() }) { Text("CC", color = Color.White) }
+                        TextButton(onClick = { revealOsd(); showAudioTracks = true }) { Text(audioTrackLabel, color = Color.White) }
+                        TextButton(onClick = { revealOsd(); showSubtitleTracks = true }) { Text("CC", color = Color.White) }
                     }
                     if (lastError.isNotBlank()) {
                         Text("Playback error: $lastError · retry $retryCount/3", color = Color.White, style = MaterialTheme.typography.bodySmall)
@@ -429,6 +438,141 @@ actual fun PlaybackPane(
             }
         }
     }
+    if (showAudioTracks) {
+        TrackSelectionDialog(player, C.TRACK_TYPE_AUDIO, audioTrackLabel) { showAudioTracks = false }
+    }
+    if (showSubtitleTracks) {
+        TrackSelectionDialog(player, C.TRACK_TYPE_TEXT, subtitlesTrackLabel) { showSubtitleTracks = false }
+    }
+}
+
+private data class TrackSelectionOption(
+    val group: Tracks.Group,
+    val trackIndex: Int,
+    val label: String,
+    val selected: Boolean,
+)
+
+@Composable
+private fun TrackSelectionDialog(
+    player: Player,
+    trackType: Int,
+    title: String,
+    onDismiss: () -> Unit,
+) {
+    var tracksRevision by remember(player) { mutableIntStateOf(0) }
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) { tracksRevision++ }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
+    val trackFallbackLabel = tr("Track")
+    val trackGroups = player.currentTracks.groups.filter { it.type == trackType }
+    val parameters = player.trackSelectionParameters
+    val isTrackTypeDisabled = parameters.disabledTrackTypes.contains(trackType)
+    val hasExplicitOverride = trackGroups.any { parameters.overrides.containsKey(it.mediaTrackGroup) }
+    val automaticSelected = !isTrackTypeDisabled && !hasExplicitOverride
+    val options = remember(player, trackType, tracksRevision, trackFallbackLabel) {
+        trackGroups.flatMap { group ->
+            (0 until group.length).mapNotNull { index ->
+                if (!group.isTrackSupported(index)) null
+                else {
+                    val format = group.getTrackFormat(index)
+                    val label = listOfNotNull(
+                        format.label?.takeIf(String::isNotBlank),
+                        format.language?.takeIf { it.isNotBlank() && it != "und" }?.uppercase(),
+                        format.sampleMimeType?.substringAfter('/')?.uppercase(),
+                    ).distinct().joinToString(" · ").ifBlank { "$trackFallbackLabel ${index + 1}" }
+                    TrackSelectionOption(group, index, label, group.isTrackSelected(index))
+                }
+            }
+        }
+    }
+    val scheme = MaterialTheme.colorScheme
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(
+                Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable {
+                        player.setTrackSelectionParameters(
+                            player.trackSelectionParameters.buildUpon()
+                                .clearOverridesOfType(trackType)
+                                .setTrackTypeDisabled(trackType, false)
+                                .build(),
+                        )
+                        onDismiss()
+                    }.padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = automaticSelected,
+                        onClick = null,
+                        colors = RadioButtonDefaults.colors(selectedColor = scheme.primary),
+                    )
+                    Text(tr("Auto"), color = scheme.onSurface)
+                }
+                if (trackType == C.TRACK_TYPE_TEXT) {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable {
+                            player.setTrackSelectionParameters(
+                                player.trackSelectionParameters.buildUpon()
+                                    .clearOverridesOfType(trackType)
+                                    .setTrackTypeDisabled(trackType, true)
+                                    .build(),
+                            )
+                            onDismiss()
+                        }.padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = isTrackTypeDisabled,
+                            onClick = null,
+                            colors = RadioButtonDefaults.colors(selectedColor = scheme.primary),
+                        )
+                        Text(tr("Off"), color = scheme.onSurface)
+                    }
+                }
+                options.forEach { option ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable {
+                            player.setTrackSelectionParameters(
+                                player.trackSelectionParameters.buildUpon()
+                                    .clearOverridesOfType(trackType)
+                                    .setTrackTypeDisabled(trackType, false)
+                                    .addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, listOf(option.trackIndex)))
+                                    .build(),
+                            )
+                            onDismiss()
+                        }.padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = option.selected,
+                            onClick = null,
+                            colors = RadioButtonDefaults.colors(selectedColor = scheme.primary),
+                        )
+                        Text(option.label, color = scheme.onSurface)
+                    }
+                }
+                if (options.isEmpty()) {
+                    Text(tr("No supported tracks available"), color = scheme.onSurfaceVariant, modifier = Modifier.padding(8.dp))
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Close")) } },
+        colors = AlertDialogDefaults.colors(
+            containerColor = scheme.surfaceContainerHigh,
+            titleContentColor = scheme.onSurface,
+            textContentColor = scheme.onSurface,
+        ),
+    )
 }
 
 actual fun formatTime(epoch: Long): String = try {

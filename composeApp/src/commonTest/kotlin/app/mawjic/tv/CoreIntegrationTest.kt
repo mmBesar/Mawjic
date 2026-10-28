@@ -19,6 +19,18 @@ class CoreIntegrationTest {
     }
 
     @Test
+    fun guideTimelineTicksUseFiveMinuteStepsWithHalfHourBoundaries() {
+        val start = 1_800_000L
+        val ticks = guideTimelineTicks(start)
+
+        assertEquals(145, ticks.size)
+        assertEquals(start, ticks.first())
+        assertEquals(start + 1_800L, ticks[6])
+        assertEquals(start + 12L * 3_600L, ticks.last())
+        assertTrue(ticks.zipWithNext().all { (left, right) -> right - left == GUIDE_TIMELINE_TICK_SECONDS })
+    }
+
+    @Test
     fun nativePlaylistParserPreservesMetadataAndMultipleEntries() {
         val input = """#EXTM3U
 #EXTINF:-1 tvg-id="news" tvg-logo="https://example.test/logo.png" group-title="World",News HD

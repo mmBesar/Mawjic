@@ -82,11 +82,24 @@ assert (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/GuideScrollbar.kt
 desktop_platform = (root / 'composeApp/src/desktopMain/kotlin/app/mawjic/tv/Platform.desktop.kt').read_text(encoding='utf-8')
 assert 'rememberScrollbarAdapter(scrollState = state)' in desktop_platform, 'Desktop scrollbar must use the guide LazyListState'
 assert 'hourWidth * GUIDE_TIMELINE_HOURS' in app, 'EPG timeline width must cover the entire horizon'
-assert '(0..GUIDE_TIMELINE_HOURS)' in app and '(0 until GUIDE_TIMELINE_HOURS)' in app, \
-    'EPG hour labels and grid must cover all 12 hours'
+assert 'guideTimelineTicks(rangeStart)' in app and '0 until (GUIDE_TIMELINE_HOURS * 2)' in app, \
+    'EPG header must show 30-minute labels and draw 5-minute ticks across the horizon'
+assert 'index % 6 == 0' in app and 'index % 3 == 0' in app, 'EPG minor tick marks need a 30/15/5 minute visual hierarchy'
+assert 'var zoomStep by remember' in app and 'zoomLevels = listOf(0.75f, 1f, 1.5f, 2f, 3f, 4f)' in app, \
+    'EPG must default to the enlarged timeline and provide user-controlled zoom'
+assert 'height(98.dp)' in app and 'height(86.dp)' in app, 'EPG rows/cards need room for subtitles and episode metadata'
+assert 'current?.subtitle?.takeIf(String::isNotBlank)' in app, 'Channel rows must show current programme subtitles'
+assert 'programme.subtitle).filter(String::isNotBlank)' in app, 'Channel rows must show next programme subtitles'
+assert 'containerColor = MaterialTheme.colorScheme.surfaceContainer' in app, 'Bottom navigation must use the app surface colour'
 models = (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/Models.kt').read_text(encoding='utf-8')
 assert 'internal const val GUIDE_TIMELINE_HOURS = 12' in models
+assert 'internal const val GUIDE_TIMELINE_TICK_SECONDS = 300L' in models
+assert 'internal fun guideTimelineTicks(rangeStartEpochSeconds: Long)' in models
 assert 'internal fun guideTimelineRange(nowEpochSeconds: Long)' in models
+common_tests = (root / 'composeApp/src/commonTest/kotlin/app/mawjic/tv/CoreIntegrationTest.kt').read_text(encoding='utf-8')
+assert 'guideTimelineTicksUseFiveMinuteStepsWithHalfHourBoundaries' in common_tests and 'assertEquals(145, ticks.size)' in common_tests
+assert 'surfaceContainerHigh = containerHigh' in theme and 'surfaceContainer = container' in theme, \
+    'Material 3 menus and dialogs need app-derived surface container colours'
 rust = (root / 'rust-core/src/lib.rs').read_text(encoding='utf-8')
 android_player = (root / 'composeApp/src/androidMain/kotlin/app/mawjic/tv/Playback.android.kt').read_text(encoding='utf-8')
 assert 'val subtitle: String = ""' in models and 'val episodeNumber: String = ""' in models
@@ -106,10 +119,14 @@ assert 'playerViewRef.get()?.showController()' in android_player, 'Revealing a h
 # tr() reads Compose state and is @Composable, so resolve track labels before click callbacks.
 assert 'val audioTrackLabel = tr("Audio")' in android_player
 assert 'val subtitlesTrackLabel = tr("Subtitles")' in android_player
-assert 'TrackSelectionDialogBuilder(context, audioTrackLabel, player, C.TRACK_TYPE_AUDIO)' in android_player
-assert 'TrackSelectionDialogBuilder(context, subtitlesTrackLabel, player, C.TRACK_TYPE_TEXT)' in android_player
-assert 'TrackSelectionDialogBuilder(context, tr("Audio")' not in android_player
-assert 'TrackSelectionDialogBuilder(context, tr("Subtitles")' not in android_player
+assert 'TrackSelectionDialog(player, C.TRACK_TYPE_AUDIO, audioTrackLabel)' in android_player
+assert 'TrackSelectionDialog(player, C.TRACK_TYPE_TEXT, subtitlesTrackLabel)' in android_player
+assert 'TrackSelectionDialogBuilder' not in android_player, 'Android track menus must use the app Material theme'
+assert 'TrackSelectionOverride(option.group.mediaTrackGroup, listOf(option.trackIndex))' in android_player
+assert 'AlertDialogDefaults.colors(' in android_player and 'containerColor = scheme.surfaceContainerHigh' in android_player
+assert 'setTrackTypeDisabled(trackType, true)' in android_player, 'Subtitle dialog must offer a real off option'
+assert 'Text(tr("Auto")' in android_player and 'clearOverridesOfType(trackType)' in android_player, \
+    'The themed track dialog must keep an automatic/default track selection option'
 # Fullscreen orientation is temporary: landscape while fullscreen, restore prior request on exit/disposal.
 assert 'private fun Context.findActivity(): Activity?' in android_player
 assert 'ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE' in android_player

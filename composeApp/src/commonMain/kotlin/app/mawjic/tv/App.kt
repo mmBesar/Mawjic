@@ -41,6 +41,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -232,13 +233,23 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
         },
         bottomBar = {
             if (compactLayout) {
-                NavigationBar {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                ) {
                     Page.entries.forEach { candidate ->
                         NavigationBarItem(
                             selected = page == candidate,
                             onClick = { page = candidate },
                             icon = { Text(candidate.glyph) },
                             label = { Text(tr(candidate.label), maxLines = 1) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = .18f),
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f),
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f),
+                            ),
                         )
                     }
                 }
@@ -438,10 +449,16 @@ private fun GuideTimeline(
     val rangeStart = range.startEpoch
     val rangeEnd = range.endEpoch
     val channelColumnWidth = if (compactLayout) 112.dp else 170.dp
-    val hourWidth = if (compactLayout) 124.dp else 170.dp
+    var zoomStep by remember { mutableIntStateOf(1) }
+    val zoomLevels = listOf(0.75f, 1f, 1.5f, 2f, 3f, 4f)
+    val zoom = zoomLevels[zoomStep]
+    // The default is deliberately more readable than the original 124/170dp hour.
+    // Zooming in further is useful for short 5–10 minute programmes.
+    val hourWidth = (if (compactLayout) 210.dp else 220.dp) * zoom
+    val halfHourWidth = hourWidth * 0.5f
     val timelineWidth = hourWidth * GUIDE_TIMELINE_HOURS
     val markerX = (((nowEpoch - rangeStart).coerceAtLeast(0L).toDouble() / 3600.0) * hourWidth.value).toFloat().dp
-    val clockTicks = (0..GUIDE_TIMELINE_HOURS).map { index -> rangeStart + index * 3600L }
+    val clockTicks = remember(rangeStart) { guideTimelineTicks(rangeStart) }
     val hourWidthPx = with(androidx.compose.ui.platform.LocalDensity.current) { hourWidth.toPx() }
     val visibleHours by remember(scroll, hourWidthPx) {
         androidx.compose.runtime.derivedStateOf {
@@ -468,35 +485,67 @@ private fun GuideTimeline(
         }
     }
     val markerColor = Color(0xFFFF536D)
-    Column(
-        modifier.fillMaxSize().drawWithContent {
-            drawContent()
-            val timelineLeft = channelColumnWidth.toPx()
-            val indicatorX = timelineLeft + markerX.toPx() - scroll.value
-            if (indicatorX >= timelineLeft && indicatorX <= size.width) {
-                drawLine(
-                    color = markerColor,
-                    start = androidx.compose.ui.geometry.Offset(indicatorX, 0f),
-                    end = androidx.compose.ui.geometry.Offset(indicatorX, size.height),
-                    strokeWidth = 2.dp.toPx(),
-                )
-                drawCircle(
-                    color = markerColor,
-                    radius = 4.dp.toPx(),
-                    center = androidx.compose.ui.geometry.Offset(indicatorX, 4.dp.toPx()),
-                )
-            }
-        },
-    ) {
-        Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().height(36.dp).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End,
+        ) {
+            Text(tr("Zoom"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
+            TextButton(onClick = { zoomStep = (zoomStep - 1).coerceAtLeast(0) }, enabled = zoomStep > 0) { Text("−") }
+            Text("${(zoom * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.width(42.dp))
+            TextButton(onClick = { zoomStep = (zoomStep + 1).coerceAtMost(zoomLevels.lastIndex) }, enabled = zoomStep < zoomLevels.lastIndex) { Text("+") }
+        }
+        Column(
+            Modifier.weight(1f).fillMaxWidth().drawWithContent {
+                drawContent()
+                val timelineLeft = channelColumnWidth.toPx()
+                val indicatorX = timelineLeft + markerX.toPx() - scroll.value
+                if (indicatorX >= timelineLeft && indicatorX <= size.width) {
+                    drawLine(
+                        color = markerColor,
+                        start = androidx.compose.ui.geometry.Offset(indicatorX, 0f),
+                        end = androidx.compose.ui.geometry.Offset(indicatorX, size.height),
+                        strokeWidth = 2.dp.toPx(),
+                    )
+                    drawCircle(
+                        color = markerColor,
+                        radius = 4.dp.toPx(),
+                        center = androidx.compose.ui.geometry.Offset(indicatorX, 4.dp.toPx()),
+                    )
+                }
+            },
+        ) {
+        Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(tr("CHANNEL"), Modifier.width(channelColumnWidth).padding(start = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
             Box(Modifier.weight(1f).horizontalScroll(scroll)) {
                 Box(Modifier.width(timelineWidth).fillMaxHeight()) {
-                    Row(Modifier.fillMaxSize()) {
-                        clockTicks.dropLast(1).forEach { tick ->
-                            Box(Modifier.width(hourWidth).fillMaxHeight().border(.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = .25f)).padding(start = 8.dp), contentAlignment = Alignment.CenterStart) {
-                                Text(formatTime(tick), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .76f))
+                    val tickColor = MaterialTheme.colorScheme.outline.copy(alpha = .72f)
+                    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                        val widthPerFiveMinutes = hourWidth.toPx() / 12f
+                        val bottom = size.height
+                        for (index in 0..(GUIDE_TIMELINE_HOURS * 12)) {
+                            val x = index * widthPerFiveMinutes
+                            val height = when {
+                                index % 6 == 0 -> 12.dp.toPx() // 30-minute labelled tick
+                                index % 3 == 0 -> 8.dp.toPx()  // 15-minute tick
+                                else -> 4.dp.toPx()           // 5-minute tick
                             }
+                            drawLine(
+                                color = tickColor,
+                                start = androidx.compose.ui.geometry.Offset(x, bottom - height),
+                                end = androidx.compose.ui.geometry.Offset(x, bottom),
+                                strokeWidth = if (index % 6 == 0) 1.dp.toPx() else .6.dp.toPx(),
+                            )
+                        }
+                    }
+                    for (index in 0 until (GUIDE_TIMELINE_HOURS * 2)) {
+                        Box(
+                            Modifier.offset(x = halfHourWidth * index.toFloat())
+                                .width(halfHourWidth).fillMaxHeight().padding(start = 5.dp, bottom = 8.dp),
+                            contentAlignment = Alignment.CenterStart,
+                        ) {
+                            Text(formatTime(clockTicks[index * 6]), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .82f), maxLines = 1)
                         }
                     }
                 }
@@ -529,12 +578,12 @@ private fun GuideTimeline(
                             val until = minOf(programme.end, rangeEnd)
                             if (until <= from) null else {
                                 val x = ((from - rangeStart).toDouble() / 3600.0 * pixelsPerHour).toFloat().dp
-                                val width = (((until - from).toDouble() / 3600.0 * pixelsPerHour).toFloat().coerceAtLeast(36f)).dp
+                                val width = ((until - from).toDouble() / 3600.0 * pixelsPerHour).toFloat().coerceAtLeast(1f).dp
                                 Triple(programme, x, width)
                             }
                         }
                     }
-                    Row(Modifier.fillMaxWidth().height(78.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().height(98.dp), verticalAlignment = Alignment.CenterVertically) {
                         Row(
                             Modifier.width(channelColumnWidth).fillMaxHeight().clip(RoundedCornerShape(10.dp))
                                 .background(MaterialTheme.colorScheme.surface).clickable { onChannelSelected(channel) }
@@ -583,11 +632,11 @@ private fun GuideTimeline(
                                 }
                                 timelineProgrammes.forEach { (programme, x, width) ->
                                     Card(
-                                        modifier = Modifier.offset(x = x, y = 7.dp).width(width).height(64.dp).padding(end = 3.dp).clickable { onProgrammeSelected(programme) },
+                                        modifier = Modifier.offset(x = x, y = 6.dp).width(width).height(86.dp).padding(end = 3.dp).clickable { onProgrammeSelected(programme) },
                                         shape = RoundedCornerShape(8.dp),
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = if (programme.start <= nowEpoch && programme.end > nowEpoch) .28f else .12f)),
                                     ) {
-                                        Column(Modifier.fillMaxSize().padding(horizontal = 7.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                        Column(Modifier.fillMaxSize().padding(horizontal = 7.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                             Text(programme.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                                             val episodeLine = listOf(programme.subtitle, programme.episodeNumber)
                                                 .filter(String::isNotBlank).distinct().joinToString(" · ")
@@ -606,6 +655,7 @@ private fun GuideTimeline(
                     modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(8.dp),
                 )
             }
+        }
         }
     }
 }
@@ -680,9 +730,16 @@ private fun ChannelRow(
                     Column(Modifier.fillMaxWidth().padding(start = 2.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Box(Modifier.size(7.dp).clip(CircleShape).background(if (current != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline))
-                            Text(current?.title ?: tr("No programme information"), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                Text(current?.title ?: tr("No programme information"), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                                current?.subtitle?.takeIf(String::isNotBlank)?.let {
+                                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .76f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
                         }
-                        Text(next?.let { "${tr("Next · ")}${it.title}" } ?: current?.let { "${tr("Until ")}${formatTime(it.end)}" } ?: tr("Guide not available"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(next?.let { programme ->
+                            listOf("${tr("Next · ")}${programme.title}", programme.subtitle).filter(String::isNotBlank).joinToString(" · ")
+                        } ?: current?.let { "${tr("Until ")}${formatTime(it.end)}" } ?: tr("Guide not available"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         current?.let {
                             val now = Platform.nowEpochSeconds()
                             val fraction = ((now - it.start).toFloat() / (it.end - it.start).coerceAtLeast(1)).coerceIn(0f, 1f)
@@ -705,9 +762,16 @@ private fun ChannelRow(
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Box(Modifier.size(7.dp).clip(CircleShape).background(if (current != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline))
-                            Text(current?.title ?: tr("No programme information"), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                Text(current?.title ?: tr("No programme information"), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                                current?.subtitle?.takeIf(String::isNotBlank)?.let {
+                                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .76f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
                         }
-                        Text(next?.let { "${tr("Next · ")}${it.title}" } ?: current?.let { "${tr("Until ")}${formatTime(it.end)}" } ?: tr("Guide not available"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(next?.let { programme ->
+                            listOf("${tr("Next · ")}${programme.title}", programme.subtitle).filter(String::isNotBlank).joinToString(" · ")
+                        } ?: current?.let { "${tr("Until ")}${formatTime(it.end)}" } ?: tr("Guide not available"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         current?.let {
                             val now = Platform.nowEpochSeconds()
                             val fraction = ((now - it.start).toFloat() / (it.end - it.start).coerceAtLeast(1)).coerceIn(0f, 1f)
