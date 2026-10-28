@@ -431,13 +431,14 @@ private fun GuideTimeline(
     onProgrammeSelected: (Programme) -> Unit,
 ) {
     val scroll = rememberScrollState()
-    val rangeStart = nowEpoch - (nowEpoch % 1800L)
-    val rangeEnd = rangeStart + 6L * 3600L
+    val range = guideTimelineRange(nowEpoch)
+    val rangeStart = range.startEpoch
+    val rangeEnd = range.endEpoch
     val channelColumnWidth = if (compactLayout) 112.dp else 170.dp
     val hourWidth = if (compactLayout) 124.dp else 170.dp
-    val timelineWidth = hourWidth * 6
+    val timelineWidth = hourWidth * GUIDE_TIMELINE_HOURS
     val markerX = (((nowEpoch - rangeStart).coerceAtLeast(0L).toDouble() / 3600.0) * hourWidth.value).toFloat().dp
-    val clockTicks = (0..6).map { index -> rangeStart + index * 3600L }
+    val clockTicks = (0..GUIDE_TIMELINE_HOURS).map { index -> rangeStart + index * 3600L }
     // programmesFor closes over the current EPG index; do not remember this list
     // using only channels/query, or a newly loaded guide leaves search results stale.
     val filteredChannels = if (query.isBlank()) channels else channels.filter { channel ->
@@ -489,7 +490,9 @@ private fun GuideTimeline(
                         Box(Modifier.weight(1f).fillMaxHeight().horizontalScroll(scroll)) {
                             Box(Modifier.width(timelineWidth).fillMaxHeight()) {
                                 Row(Modifier.fillMaxSize()) {
-                                    (0..5).forEach { Box(Modifier.width(hourWidth).fillMaxHeight().border(.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = .18f))) }
+                                    (0 until GUIDE_TIMELINE_HOURS).forEach {
+                                        Box(Modifier.width(hourWidth).fillMaxHeight().border(.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = .18f)))
+                                    }
                                 }
                                 programmes.forEach { programme ->
                                     val from = maxOf(programme.start, rangeStart)

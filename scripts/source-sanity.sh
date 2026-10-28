@@ -70,8 +70,16 @@ assert 'org.videolan.vlc' in manifest and 'is.xyz.mpv' in manifest
 common_tests = (root / 'composeApp/src/commonTest/kotlin/app/mawjic/tv/CoreIntegrationTest.kt').read_text(encoding='utf-8')
 assert 'assertEquals(2, guide.programmes.size)' in common_tests
 assert 'xmltvSubtitleAndOnscreenEpisodeNumberSurviveNativeParsing' in common_tests
+assert 'guideTimelineWindowCovers24HoursAndFloorsToHalfHour' in common_tests, \
+    'The 24-hour EPG time window must have a regression test'
 assert 'sourceReloadVersion' in app and 'hourWidth.value.toDouble()' in app
+assert 'guideTimelineRange(nowEpoch)' in app, 'EPG timeline must use the tested 24-hour range helper'
+assert 'hourWidth * GUIDE_TIMELINE_HOURS' in app, 'EPG timeline width must cover the entire horizon'
+assert '(0..GUIDE_TIMELINE_HOURS)' in app and '(0 until GUIDE_TIMELINE_HOURS)' in app, \
+    'EPG hour labels and grid must cover all 24 hours'
 models = (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/Models.kt').read_text(encoding='utf-8')
+assert 'internal const val GUIDE_TIMELINE_HOURS = 24' in models
+assert 'internal fun guideTimelineRange(nowEpochSeconds: Long)' in models
 rust = (root / 'rust-core/src/lib.rs').read_text(encoding='utf-8')
 android_player = (root / 'composeApp/src/androidMain/kotlin/app/mawjic/tv/Playback.android.kt').read_text(encoding='utf-8')
 assert 'val subtitle: String = ""' in models and 'val episodeNumber: String = ""' in models

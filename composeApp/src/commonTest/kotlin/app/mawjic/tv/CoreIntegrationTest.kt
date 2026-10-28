@@ -8,6 +8,17 @@ import kotlin.math.max
 
 class CoreIntegrationTest {
     @Test
+    fun guideTimelineWindowCovers24HoursAndFloorsToHalfHour() {
+        val nowEpoch = 27L * 3600L + 20L * 60L
+        val range = guideTimelineRange(nowEpoch)
+
+        assertEquals(27L * 3600L, range.startEpoch)
+        assertEquals(24L * 3600L, range.endEpoch - range.startEpoch)
+        assertTrue(range.startEpoch <= nowEpoch)
+        assertTrue(range.endEpoch > nowEpoch)
+    }
+
+    @Test
     fun nativePlaylistParserPreservesMetadataAndMultipleEntries() {
         val input = """#EXTM3U
 #EXTINF:-1 tvg-id="news" tvg-logo="https://example.test/logo.png" group-title="World",News HD

@@ -32,6 +32,21 @@ data class Programme(
 
 data class GuideData(val channelLogos: Map<String, String>, val channelNames: Map<String, String>, val programmes: List<Programme>)
 
+/** Visible EPG horizon. The window starts at the previous half-hour boundary and spans 24 hours. */
+internal const val GUIDE_TIMELINE_HOURS = 24
+private const val GUIDE_TIMELINE_SECONDS_PER_HOUR = 3600L
+private const val GUIDE_TIMELINE_ALIGNMENT_SECONDS = 1800L
+
+internal data class GuideTimelineRange(val startEpoch: Long, val endEpoch: Long)
+
+internal fun guideTimelineRange(nowEpochSeconds: Long): GuideTimelineRange {
+    val start = nowEpochSeconds - (nowEpochSeconds % GUIDE_TIMELINE_ALIGNMENT_SECONDS)
+    return GuideTimelineRange(
+        startEpoch = start,
+        endEpoch = start + GUIDE_TIMELINE_HOURS * GUIDE_TIMELINE_SECONDS_PER_HOUR,
+    )
+}
+
 /** Indexed programme groups with exact ID and normalized display-name fallback. */
 class EpgIndex(guide: GuideData) {
     private val programmesById = guide.programmes.groupBy(Programme::channelId)
