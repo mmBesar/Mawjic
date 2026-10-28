@@ -32,8 +32,8 @@ data class Programme(
 
 data class GuideData(val channelLogos: Map<String, String>, val channelNames: Map<String, String>, val programmes: List<Programme>)
 
-/** Visible EPG horizon. The window starts at the previous half-hour boundary and spans 24 hours. */
-internal const val GUIDE_TIMELINE_HOURS = 24
+/** Visible EPG horizon. The window starts at the previous half-hour boundary and spans 12 hours. */
+internal const val GUIDE_TIMELINE_HOURS = 12
 private const val GUIDE_TIMELINE_SECONDS_PER_HOUR = 3600L
 private const val GUIDE_TIMELINE_ALIGNMENT_SECONDS = 1800L
 
@@ -49,19 +49,62 @@ internal fun guideTimelineRange(nowEpochSeconds: Long): GuideTimelineRange {
 
 /** Indexed programme groups with exact ID and normalized display-name fallback. */
 class EpgIndex(guide: GuideData) {
+    // Keep per-channel schedules in start-time order for current/next and range queries.
     private val programmesById = guide.programmes.groupBy(Programme::channelId)
+        .mapValues { (_, programmes) -> programmes.sortedBy(Programme::start) }
+    // Prefix maxima allow binary search to find the earliest programme that can
+    // overlap a range, including unusually long programmes overlapping later entries.
+    private val prefixMaxEndById = programmesById.mapValues { (_, programmes) ->
+        var maxEnd = Long.MIN_VALUE
+        LongArray(programmes.size) { index ->
+            maxEnd = maxOf(maxEnd, programmes[index].end)
+            maxEnd
+        }
+    }
     private val idByNormalizedName = guide.channelNames.entries
         .groupBy { normalize(it.value) }
         .mapValues { (_, matches) -> matches.first().key }
 
-    fun programmesFor(channel: Channel): List<Programme> {
+    private fun resolvedChannelId(channel: Channel): String {
         val name = normalize(channel.name)
-        val id = when {
+        return when {
             channel.id in programmesById -> channel.id
             name in idByNormalizedName -> idByNormalizedName.getValue(name)
             else -> channel.id
         }
-        return programmesById[id].orEmpty()
+    }
+
+    fun programmesFor(channel: Channel): List<Programme> =
+        programmesById[resolvedChannelId(channel)].orEmpty()
+
+    /** Returns programmes intersecting [startEpoch, endEpoch), sorted by start time. */
+    fun programmesInRange(channel: Channel, startEpoch: Long, endEpoch: Long): List<Programme> {
+        if (endEpoch <= startEpoch) return emptyList()
+        val id = resolvedChannelId(channel)
+        val programmes = programmesById[id].orEmpty()
+        val prefixMaxEnds = prefixMaxEndById[id] ?: return emptyList()
+        if (programmes.isEmpty()) return emptyList()
+
+        // First index whose prefix contains an end strictly after the range start.
+        var low = 0
+        var high = programmes.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (prefixMaxEnds[middle] <= startEpoch) low = middle + 1 else high = middle
+        }
+        val first = low
+        if (first >= programmes.size) return emptyList()
+
+        // First programme whose start is at or after the exclusive range end.
+        low = first
+        high = programmes.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (programmes[middle].start < endEpoch) low = middle + 1 else high = middle
+        }
+        val last = low
+        if (first >= last) return emptyList()
+        return programmes.subList(first, last).filter { it.end > startEpoch && it.start < endEpoch }
     }
 
     fun current(channel: Channel, nowEpoch: Long): Programme? =

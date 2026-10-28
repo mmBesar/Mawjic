@@ -157,3 +157,10 @@ At the time this historical entry was written, the follow-ups had received stati
 - Kept the existing shared horizontal scroll state, 15-second clock refresh, channel column, programme subtitle/episode line, and current-time marker behavior. This change does not yet replace the per-row marker with a single overlay; that is a separate visual/layout refinement.
 - Added `guideTimelineRange` as a pure shared helper and `guideTimelineWindowCovers24HoursAndFloorsToHalfHour` as a common regression test. `source-sanity.sh` guards the 24-hour hour count, grid/labels, and presence of the regression test.
 - Static source sanity and guarded ZIP dry-run/apply/idempotence/refusal checks passed in the preparation environment. **Pending:** hosted `desktopTest`/Android/Linux CI, and manual visual validation of horizontal scrolling, all 24 labels, programme cards around the range edges, and current-time marker positioning.
+
+## Follow-up: 12-hour TV Guide performance and navigation (2026-10-28; pending hosted CI)
+- Reduced the rolling guide horizon from 24 to 12 hours at the maintainer's preference. The range still floors to the previous half-hour boundary, and the current-time indicator refresh cadence remains unchanged.
+- Added an interval index to `EpgIndex` so the guide asks for programmes overlapping its visible window plus a one-hour overscan instead of filtering and constructing timeline geometry for the full horizon on each visible channel row. Search still uses the full programme index.
+- Replaced per-channel current-time marker elements with one draw-phase overlay spanning the guide, preserving horizontal alignment through the shared scroll offset.
+- Added a Desktop-only draggable scrollbar connected to the guide's `LazyListState`; Android's actual is a no-op. Added interval-boundary regression coverage and updated `source-sanity.sh` for the 12-hour contract.
+- **Not yet verified:** Kotlin compilation, hosted GitHub Actions, guide open/scroll performance on Android, and Desktop scrollbar/indicator alignment. Do not interpret static checks as device or CI validation.

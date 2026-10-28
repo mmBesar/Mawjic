@@ -208,3 +208,15 @@ private fun InputStream.readBoundedUtf8(): String {
     } else bytes
     return decoded.toString(Charsets.UTF_8)
 }
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@androidx.compose.runtime.Composable
+actual fun GuideVerticalScrollbar(
+    state: androidx.compose.foundation.lazy.LazyListState,
+    modifier: androidx.compose.ui.Modifier,
+) {
+    androidx.compose.foundation.VerticalScrollbar(
+        modifier = modifier,
+        adapter = androidx.compose.foundation.rememberScrollbarAdapter(scrollState = state),
+    )
+}

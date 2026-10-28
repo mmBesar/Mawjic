@@ -8,12 +8,12 @@ import kotlin.math.max
 
 class CoreIntegrationTest {
     @Test
-    fun guideTimelineWindowCovers24HoursAndFloorsToHalfHour() {
+    fun guideTimelineWindowCovers12HoursAndFloorsToHalfHour() {
         val nowEpoch = 27L * 3600L + 20L * 60L
         val range = guideTimelineRange(nowEpoch)
 
         assertEquals(27L * 3600L, range.startEpoch)
-        assertEquals(24L * 3600L, range.endEpoch - range.startEpoch)
+        assertEquals(12L * 3600L, range.endEpoch - range.startEpoch)
         assertTrue(range.startEpoch <= nowEpoch)
         assertTrue(range.endEpoch > nowEpoch)
     }

@@ -26,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -61,6 +62,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
@@ -431,6 +433,7 @@ private fun GuideTimeline(
     onProgrammeSelected: (Programme) -> Unit,
 ) {
     val scroll = rememberScrollState()
+    val guideListState = rememberLazyListState()
     val range = guideTimelineRange(nowEpoch)
     val rangeStart = range.startEpoch
     val rangeEnd = range.endEpoch
@@ -465,7 +468,26 @@ private fun GuideTimeline(
         }
     }
     val markerColor = Color(0xFFFF536D)
-    Column(modifier.fillMaxSize()) {
+    Column(
+        modifier.fillMaxSize().drawWithContent {
+            drawContent()
+            val timelineLeft = channelColumnWidth.toPx()
+            val indicatorX = timelineLeft + markerX.toPx() - scroll.value
+            if (indicatorX >= timelineLeft && indicatorX <= size.width) {
+                drawLine(
+                    color = markerColor,
+                    start = androidx.compose.ui.geometry.Offset(indicatorX, 0f),
+                    end = androidx.compose.ui.geometry.Offset(indicatorX, size.height),
+                    strokeWidth = 2.dp.toPx(),
+                )
+                drawCircle(
+                    color = markerColor,
+                    radius = 4.dp.toPx(),
+                    center = androidx.compose.ui.geometry.Offset(indicatorX, 4.dp.toPx()),
+                )
+            }
+        },
+    ) {
         Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(tr("CHANNEL"), Modifier.width(channelColumnWidth).padding(start = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
             Box(Modifier.weight(1f).horizontalScroll(scroll)) {
@@ -477,8 +499,6 @@ private fun GuideTimeline(
                             }
                         }
                     }
-                    Box(Modifier.offset(x = markerX - 1.dp).width(2.dp).fillMaxHeight().background(markerColor))
-                    Box(Modifier.offset(x = markerX - 4.dp, y = 1.dp).size(8.dp).clip(CircleShape).background(markerColor))
                 }
             }
         }
@@ -488,11 +508,17 @@ private fun GuideTimeline(
                 Text(tr("Add a playlist and XMLTV guide to build your programme timeline."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
             }
         } else {
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
-                items(filteredChannels, key = { "guide:${it.url}" }) { channel ->
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    state = guideListState,
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp),
+                ) {
+                items(filteredChannels, key = { "guide:${it.url}" }, contentType = { "guide-channel" }) { channel ->
                     val logo = logoFor(channel)
-                    val programmes = remember(channel, epgIndex, rangeStart, rangeEnd) {
-                        epgIndex.programmesFor(channel).filter { it.end > rangeStart && it.start < rangeEnd }
+                    val programmes = remember(channel, epgIndex, visibleStartEpoch, visibleEndEpoch) {
+                        epgIndex.programmesInRange(channel, visibleStartEpoch, visibleEndEpoch)
                     }
                     // The clock marker moves every 15 seconds; programme geometry does not.
                     // Cache clipped x/width values until the EPG, range, or compact width changes.
@@ -506,11 +532,6 @@ private fun GuideTimeline(
                                 val width = (((until - from).toDouble() / 3600.0 * pixelsPerHour).toFloat().coerceAtLeast(36f)).dp
                                 Triple(programme, x, width)
                             }
-                        }
-                    }
-                    val visibleTimelineProgrammes = remember(timelineProgrammes, visibleStartEpoch, visibleEndEpoch) {
-                        timelineProgrammes.filter { (programme, _, _) ->
-                            programme.end > visibleStartEpoch && programme.start < visibleEndEpoch
                         }
                     }
                     Row(Modifier.fillMaxWidth().height(78.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -560,27 +581,30 @@ private fun GuideTimeline(
                                         strokeWidth = lineWidth,
                                     )
                                 }
-                                visibleTimelineProgrammes.forEach { (programme, x, width) ->
-                                        Card(
-                                            modifier = Modifier.offset(x = x, y = 7.dp).width(width).height(64.dp).padding(end = 3.dp).clickable { onProgrammeSelected(programme) },
-                                            shape = RoundedCornerShape(8.dp),
-                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = if (programme.start <= nowEpoch && programme.end > nowEpoch) .28f else .12f)),
-                                        ) {
-                                            Column(Modifier.fillMaxSize().padding(horizontal = 7.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                                Text(programme.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                                                val episodeLine = listOf(programme.subtitle, programme.episodeNumber)
-                                                    .filter(String::isNotBlank).distinct().joinToString(" · ")
-                                                if (episodeLine.isNotBlank() && width.value >= 42f) Text(episodeLine, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .85f))
-                                                if (width.value >= 90f) Text("${formatTime(programme.start)}–${formatTime(programme.end)}", maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f))
-                                            }
+                                timelineProgrammes.forEach { (programme, x, width) ->
+                                    Card(
+                                        modifier = Modifier.offset(x = x, y = 7.dp).width(width).height(64.dp).padding(end = 3.dp).clickable { onProgrammeSelected(programme) },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = if (programme.start <= nowEpoch && programme.end > nowEpoch) .28f else .12f)),
+                                    ) {
+                                        Column(Modifier.fillMaxSize().padding(horizontal = 7.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                            Text(programme.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                            val episodeLine = listOf(programme.subtitle, programme.episodeNumber)
+                                                .filter(String::isNotBlank).distinct().joinToString(" · ")
+                                            if (episodeLine.isNotBlank() && width.value >= 42f) Text(episodeLine, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .85f))
+                                            if (width.value >= 90f) Text("${formatTime(programme.start)}–${formatTime(programme.end)}", maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f))
                                         }
+                                    }
                                 }
-                                Box(Modifier.offset(x = markerX - 1.dp).width(2.dp).fillMaxHeight().background(markerColor))
-                                Box(Modifier.offset(x = markerX - 4.dp, y = 0.dp).size(8.dp).clip(CircleShape).background(markerColor))
                             }
                         }
                     }
                 }
+                }
+                GuideVerticalScrollbar(
+                    state = guideListState,
+                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(8.dp),
+                )
             }
         }
     }

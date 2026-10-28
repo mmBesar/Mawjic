@@ -180,3 +180,9 @@ private fun InputStream.readBoundedUtf8(): String {
     } else bytes
     return decoded.toString(Charsets.UTF_8)
 }
+
+@androidx.compose.runtime.Composable
+actual fun GuideVerticalScrollbar(
+    state: androidx.compose.foundation.lazy.LazyListState,
+    modifier: androidx.compose.ui.Modifier,
+) = Unit
