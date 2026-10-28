@@ -165,6 +165,9 @@ compose.desktop {
     application {
         mainClass = "app.mawjic.tv.desktop.MainKt"
         nativeDistributions {
+            // Ktor's JVM Java engine uses java.net.http. jlink does not infer every
+            // runtime module automatically, so include it in packaged distributions.
+            modules("java.net.http")
             packageName = "mawjic"
             packageVersion = versionNameValue
             description = "A cross-platform IPTV client with EPG and Catppuccin themes"

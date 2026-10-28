@@ -1,6 +1,17 @@
 # Mawjic build status
 
-**Base revision `4a085312886534d79d0f18380e377b7aecf5558e`: GitHub Actions CI run #6 passed on 2026-10-27.** The attached source archive matches that revision. This player-OSD source update is not part of the passing run until applied and tested in a new workflow run. This authoring environment has Java installed but no Gradle, Cargo, or Rust compiler; Android UI/device behavior cannot be verified here. Keep base-CI evidence distinct from checks performed on this update.
+## Current verification snapshot (2026-10-28)
+
+- **Android player/fullscreen:** the maintainer reports the player feels much better and confirms the fullscreen-landscape Stage 1 GitHub Actions build passed. The app was not downloaded or manually tested after that Stage 1 build. Orientation edge cases, keep-screen-on release paths and OSD behavior across devices remain incompletely verified.
+- **Linux artwork diagnostics:** the maintainer ran the diagnostic AppImage. It emitted repeated `Mawjic artwork failed: host=tunarr.hs.lan error=ClassNotFoundException` lines but no `Mawjic artwork request` or `Mawjic artwork response` lines. That points to client/engine initialization before an HTTP exchange; it does not identify the missing class by itself.
+- **Runtime evidence:** the extracted AppImage reports `JAVA_VERSION="21.0.12.1"`. Its `lib/runtime/release` metadata does not list `java.net.http`, and the packaged app includes `ktor-client-java-jvm-3.6.0`. Ktor documents that the Java engine uses Java's HTTP Client API; JetBrains documents that jlink can omit needed modules and cause `ClassNotFoundException`.
+- **Next targeted fix:** explicitly include `modules("java.net.http")` in `nativeDistributions` and add a source-sanity guard. This is the best-supported hypothesis to test, not yet a confirmed root cause: the current application log suppresses the missing class name.
+- **Verified for this fix bundle:** patch source inspected against the attached `main` archive plus the subsequent player/landscape/artwork payloads; ZIP/checksum, guarded dry-run/apply/idempotence/refusal, `bash scripts/source-sanity.sh`, `bash -n`, and `git diff --check` pass in a disposable checkout.
+- **Not yet verified:** Gradle compilation, a new GitHub Actions run containing this fix, an AppImage rebuilt with the module, and whether the failing `tunarr.hs.lan` artwork requests then succeed. Do not call the artwork issue fixed until those checks pass.
+
+The older follow-up sections below record status as it was known when each item was written; this snapshot supersedes any earlier “awaiting CI” wording where the maintainer has since reported a passing build or runtime result.
+
+**Base revision `4a085312886534d79d0f18380e377b7aecf5558e`: GitHub Actions CI run #6 passed on 2026-10-27.** The attached source archive matches that revision. The original base run did not include the later player-OSD changes; subsequent follow-up build status is recorded in the current verification snapshot above. This authoring environment has Java installed but no Gradle, Cargo, or Rust compiler; Android UI/device behavior cannot be verified here. Keep base-CI evidence distinct from checks performed on this update.
 
 ## Confirmed failures from the previous repository's GitHub Actions logs
 

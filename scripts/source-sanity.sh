@@ -39,6 +39,8 @@ assert 'namespace = "app.mawjic.tv"' in build
 assert 'applicationId = "app.mawjic.tv"' in build
 assert 'activity-compose:1.12.4' in build
 assert 'coil-compose:3.5.0' in build and 'coil-network-ktor3:3.5.0' in build and 'coil-svg:3.5.0' in build
+assert 'modules("java.net.http")' in build, \
+    'The packaged desktop runtime must include java.net.http for Ktor Java engine'
 theme = (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/Theme.kt').read_text(encoding='utf-8')
 app = (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/App.kt').read_text(encoding='utf-8')
 android_platform = (root / 'composeApp/src/androidMain/kotlin/app/mawjic/tv/Platform.android.kt').read_text(encoding='utf-8')
