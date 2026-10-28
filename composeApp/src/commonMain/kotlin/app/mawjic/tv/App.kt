@@ -1,8 +1,5 @@
 package app.mawjic.tv
 
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,8 +22,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -444,6 +439,23 @@ private fun GuideTimeline(
     val timelineWidth = hourWidth * GUIDE_TIMELINE_HOURS
     val markerX = (((nowEpoch - rangeStart).coerceAtLeast(0L).toDouble() / 3600.0) * hourWidth.value).toFloat().dp
     val clockTicks = (0..GUIDE_TIMELINE_HOURS).map { index -> rangeStart + index * 3600L }
+    val hourWidthPx = with(androidx.compose.ui.platform.LocalDensity.current) { hourWidth.toPx() }
+    val visibleHours by remember(scroll, hourWidthPx) {
+        androidx.compose.runtime.derivedStateOf {
+            val viewportPx = scroll.viewportSize.takeIf { it > 0 }
+                ?: (hourWidthPx * 3f).toInt().coerceAtLeast(1)
+            val firstVisibleHour = (scroll.value / hourWidthPx).toInt()
+                .coerceIn(0, GUIDE_TIMELINE_HOURS - 1)
+            val endVisibleHour = kotlin.math.ceil(
+                (scroll.value + viewportPx).toDouble() / hourWidthPx.toDouble(),
+            ).toInt().coerceIn(firstVisibleHour + 1, GUIDE_TIMELINE_HOURS)
+            val firstHour = (firstVisibleHour - 1).coerceAtLeast(0)
+            val endHour = (endVisibleHour + 1).coerceAtMost(GUIDE_TIMELINE_HOURS)
+            firstHour until endHour
+        }
+    }
+    val visibleStartEpoch = rangeStart + visibleHours.first * 3600L
+    val visibleEndEpoch = rangeStart + (visibleHours.last + 1) * 3600L
     // Cache search results, invalidating them when the playlist, query, or loaded EPG changes.
     val filteredChannels = remember(channels, query, epgIndex) {
         if (query.isBlank()) channels else channels.filter { channel ->
@@ -496,6 +508,11 @@ private fun GuideTimeline(
                             }
                         }
                     }
+                    val visibleTimelineProgrammes = remember(timelineProgrammes, visibleStartEpoch, visibleEndEpoch) {
+                        timelineProgrammes.filter { (programme, _, _) ->
+                            programme.end > visibleStartEpoch && programme.start < visibleEndEpoch
+                        }
+                    }
                     Row(Modifier.fillMaxWidth().height(78.dp), verticalAlignment = Alignment.CenterVertically) {
                         Row(
                             Modifier.width(channelColumnWidth).fillMaxHeight().clip(RoundedCornerShape(10.dp))
@@ -509,15 +526,8 @@ private fun GuideTimeline(
                             }
                             Text(channel.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                         }
-                        Box(
-                            Modifier.weight(1f).fillMaxHeight().clipToBounds()
-                                .scrollable(state = scroll, orientation = Orientation.Horizontal),
-                        ) {
-                            Box(
-                                Modifier.offset { IntOffset(-scroll.value, 0) }
-                                    .requiredWidth(timelineWidth)
-                                    .fillMaxHeight(),
-                            ) {
+                        Box(Modifier.weight(1f).fillMaxHeight().horizontalScroll(scroll)) {
+                            Box(Modifier.width(timelineWidth).fillMaxHeight()) {
                                 val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = .18f)
                                 androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
                                     val lineWidth = .5.dp.toPx()
@@ -550,7 +560,7 @@ private fun GuideTimeline(
                                         strokeWidth = lineWidth,
                                     )
                                 }
-                                timelineProgrammes.forEach { (programme, x, width) ->
+                                visibleTimelineProgrammes.forEach { (programme, x, width) ->
                                         Card(
                                             modifier = Modifier.offset(x = x, y = 7.dp).width(width).height(64.dp).padding(end = 3.dp).clickable { onProgrammeSelected(programme) },
                                             shape = RoundedCornerShape(8.dp),
