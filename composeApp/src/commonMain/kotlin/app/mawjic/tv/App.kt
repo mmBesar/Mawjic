@@ -76,9 +76,22 @@ import coil3.compose.setSingletonImageLoaderFactory
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.api.createClientPlugin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+// Log only the parsed host and HTTP status for artwork triage. Never log full
+// URLs, query strings, headers, cookies or image response bodies: IPTV URLs may
+// contain private account tokens.
+private val MawjicArtworkNetworkDiagnostics = createClientPlugin("MawjicArtworkNetworkDiagnostics") {
+    onRequest { request, _ ->
+        println("Mawjic artwork request: host=${request.url.host}")
+    }
+    onResponse { response ->
+        println("Mawjic artwork response: host=${response.call.request.url.host} status=${response.status.value}")
+    }
+}
 
 private enum class Page(val label: String, val glyph: String) {
     LIVE("Live TV", "◉"), GUIDE("TV Guide", "▦"), FAVOURITES("Favourites", "☆"), SETTINGS("Settings", "⚙"),
@@ -91,7 +104,7 @@ fun MawjicApp() {
     setSingletonImageLoaderFactory { context ->
         ImageLoader.Builder(context)
             .components {
-                add(KtorNetworkFetcherFactory(httpClient = { HttpClient() }))
+                add(KtorNetworkFetcherFactory(httpClient = { HttpClient { install(MawjicArtworkNetworkDiagnostics) } }))
             }
             .crossfade(true)
             .build()

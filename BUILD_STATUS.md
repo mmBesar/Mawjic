@@ -121,3 +121,11 @@ At the time this historical entry was written, the follow-ups had received stati
 - Added source-sanity guards for the landscape request and restoration path.
 - Static source sanity, script syntax and guarded bundle dry-run/apply/idempotence/refusal checks are the only checks available here. This is not a Kotlin/Gradle compile or device test.
 - **Not yet verified:** actual rotation on physical phones; behavior with device rotation lock, multi-window/foldables, Android 16+ large-screen orientation policy, and restoration after closing/back/navigation.
+
+
+## Linux artwork network diagnostics (2026-10-27; diagnostic-only update ZIP, not yet CI-verified)
+
+- The inspected source already registers Coil 3's Ktor network fetcher and includes the JVM Ktor Java engine. This update does not swap engines, weaken TLS, or claim to fix logo rendering.
+- Added request-host and response-host/HTTP-status diagnostics to the artwork HttpClient. The logs deliberately exclude full URLs, paths, query strings, headers, cookies and response bodies. Existing `Mawjic artwork failed` output remains host + root exception type only.
+- Added static source-sanity guards for the diagnostic hook and to prevent full-URL logging. Official Ktor 3.x documentation confirms custom client plugins can inspect requests and responses through `onRequest` / `onResponse`; see https://ktor.io/docs/client-custom-plugins.html.
+- **Not yet verified:** Kotlin compilation, Linux AppImage runtime, HTTP status behavior across redirects, real provider logo retrieval, SVG/decoder compatibility, certificate failures, and whether the actual failing host is TLS/network/server/format related. Run the updated AppImage from a terminal and capture `Mawjic artwork request`, `Mawjic artwork response`, and `Mawjic artwork failed` lines.

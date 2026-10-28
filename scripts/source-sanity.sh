@@ -52,7 +52,13 @@ for deprecated_alias in ('implementation(compose.runtime)', 'implementation(comp
 assert 'TargetFormat.Rpm' in build
 assert 'gzip XMLTV' in (root / 'README.md').read_text(encoding='utf-8')
 assert 'Mawjic artwork failed' in app and 'AsyncImagePainter.State.Error' in app
-assert 'setSingletonImageLoaderFactory' in app and 'KtorNetworkFetcherFactory' in app and 'HttpClient()' in app
+assert 'createClientPlugin' in app and 'MawjicArtworkNetworkDiagnostics' in app
+assert 'Mawjic artwork request: host=${request.url.host}' in app
+assert 'Mawjic artwork response: host=${response.call.request.url.host} status=${response.status.value}' in app
+assert 'HttpClient { install(MawjicArtworkNetworkDiagnostics) }' in app
+assert 'Mawjic artwork response: ${response.call.request.url}' not in app, \
+    'Artwork diagnostics must not log full URLs or query tokens'
+assert 'setSingletonImageLoaderFactory' in app and 'KtorNetworkFetcherFactory' in app and 'HttpClient {' in app
 assert 'import coil3.request.crossfade' in app, 'Coil crossfade extension import missing'
 assert 'triedHlsFallback' in android_player and 'MimeTypes.APPLICATION_M3U8' in android_player
 manifest = (root / 'composeApp/src/androidMain/AndroidManifest.xml').read_text(encoding='utf-8')
