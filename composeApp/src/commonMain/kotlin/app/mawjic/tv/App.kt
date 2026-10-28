@@ -76,22 +76,9 @@ import coil3.compose.setSingletonImageLoaderFactory
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import io.ktor.client.HttpClient
-import io.ktor.client.plugins.api.createClientPlugin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-
-// Log only the parsed host and HTTP status for artwork triage. Never log full
-// URLs, query strings, headers, cookies or image response bodies: IPTV URLs may
-// contain private account tokens.
-private val MawjicArtworkNetworkDiagnostics = createClientPlugin("MawjicArtworkNetworkDiagnostics") {
-    onRequest { request, _ ->
-        println("Mawjic artwork request: host=${request.url.host}")
-    }
-    onResponse { response ->
-        println("Mawjic artwork response: host=${response.call.request.url.host} status=${response.status.value}")
-    }
-}
 
 private enum class Page(val label: String, val glyph: String) {
     LIVE("Live TV", "◉"), GUIDE("TV Guide", "▦"), FAVOURITES("Favourites", "☆"), SETTINGS("Settings", "⚙"),
@@ -104,7 +91,7 @@ fun MawjicApp() {
     setSingletonImageLoaderFactory { context ->
         ImageLoader.Builder(context)
             .components {
-                add(KtorNetworkFetcherFactory(httpClient = { HttpClient { install(MawjicArtworkNetworkDiagnostics) } }))
+                add(KtorNetworkFetcherFactory(httpClient = { HttpClient() }))
             }
             .crossfade(true)
             .build()
@@ -561,14 +548,6 @@ private fun ChannelLogo(name: String, logo: String, modifier: Modifier = Modifie
             onState = { state ->
                 if (state is AsyncImagePainter.State.Error) {
                     failed = true
-                    // Log only the host and exception type; image URLs may contain private tokens.
-                    val host = logo.substringAfter("://", "").substringBefore('/').substringBefore('?').substringBefore('#').substringAfterLast('@').take(120)
-                    var rootCause = state.result.throwable
-                    repeat(8) {
-                        val cause = rootCause.cause
-                        if (cause != null && cause !== rootCause) rootCause = cause
-                    }
-                    println("Mawjic artwork failed: host=$host error=${rootCause::class.simpleName ?: "unknown"}")
                 }
             },
         )
@@ -804,7 +783,7 @@ private fun ProgrammeDialog(programme: Programme, onDismiss: () -> Unit) {
         title = { Text(programme.title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (programme.image.isNotBlank()) AsyncImage(programme.image, contentDescription = tr("Programme artwork"), modifier = Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Crop)
+                if (programme.image.isNotBlank()) AsyncImage(programme.image, contentDescription = tr("Programme artwork"), modifier = Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Fit)
                 Text("${formatTime(programme.start)} – ${formatTime(programme.end)}")
                 val episodeDetails = listOf(programme.subtitle, programme.episodeNumber).filter(String::isNotBlank).distinct()
                 if (episodeDetails.isNotEmpty()) Text(episodeDetails.joinToString(" · "), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)

@@ -53,14 +53,16 @@ for deprecated_alias in ('implementation(compose.runtime)', 'implementation(comp
     assert deprecated_alias not in build, f'deprecated Compose alias remains: {deprecated_alias}'
 assert 'TargetFormat.Rpm' in build
 assert 'gzip XMLTV' in (root / 'README.md').read_text(encoding='utf-8')
-assert 'Mawjic artwork failed' in app and 'AsyncImagePainter.State.Error' in app
-assert 'createClientPlugin' in app and 'MawjicArtworkNetworkDiagnostics' in app
-assert 'Mawjic artwork request: host=${request.url.host}' in app
-assert 'Mawjic artwork response: host=${response.call.request.url.host} status=${response.status.value}' in app
-assert 'HttpClient { install(MawjicArtworkNetworkDiagnostics) }' in app
-assert 'Mawjic artwork response: ${response.call.request.url}' not in app, \
-    'Artwork diagnostics must not log full URLs or query tokens'
-assert 'setSingletonImageLoaderFactory' in app and 'KtorNetworkFetcherFactory' in app and 'HttpClient {' in app
+assert 'AsyncImagePainter.State.Error' in app
+assert 'Mawjic artwork request:' not in app and 'Mawjic artwork response:' not in app and 'Mawjic artwork failed:' not in app, \
+    'Temporary artwork network diagnostics must not remain enabled in normal builds'
+assert 'createClientPlugin' not in app and 'MawjicArtworkNetworkDiagnostics' not in app
+assert 'setSingletonImageLoaderFactory' in app and 'KtorNetworkFetcherFactory' in app and 'HttpClient()' in app
+assert 'implementation("org.slf4j:slf4j-nop:2.0.19")' in build, \
+    'Desktop Ktor runtime must have the intentional SLF4J NOP provider'
+programme_dialog = app[app.index('private fun ProgrammeDialog'):]
+assert 'programme.image' in programme_dialog and 'contentScale = ContentScale.Fit' in programme_dialog and 'ContentScale.Crop' not in programme_dialog, \
+    'Programme artwork must preserve its full image instead of center-cropping'
 assert 'import coil3.request.crossfade' in app, 'Coil crossfade extension import missing'
 assert 'triedHlsFallback' in android_player and 'MimeTypes.APPLICATION_M3U8' in android_player
 manifest = (root / 'composeApp/src/androidMain/AndroidManifest.xml').read_text(encoding='utf-8')

@@ -140,3 +140,12 @@ At the time this historical entry was written, the follow-ups had received stati
 - Added request-host and response-host/HTTP-status diagnostics to the artwork HttpClient. The logs deliberately exclude full URLs, paths, query strings, headers, cookies and response bodies. Existing `Mawjic artwork failed` output remains host + root exception type only.
 - Added static source-sanity guards for the diagnostic hook and to prevent full-URL logging. Official Ktor 3.x documentation confirms custom client plugins can inspect requests and responses through `onRequest` / `onResponse`; see https://ktor.io/docs/client-custom-plugins.html.
 - **Not yet verified:** Kotlin compilation, Linux AppImage runtime, HTTP status behavior across redirects, real provider logo retrieval, SVG/decoder compatibility, certificate failures, and whether the actual failing host is TLS/network/server/format related. Run the updated AppImage from a terminal and capture `Mawjic artwork request`, `Mawjic artwork response`, and `Mawjic artwork failed` lines.
+
+
+## Linux artwork runtime success and output cleanup (2026-10-28)
+
+- Maintainer reports all jobs in the latest hosted CI run passed after restoring the executable bit on `scripts/source-sanity.sh`. The Linux AMD64 AppImage now fetches artwork from `tunarr.hs.lan` with HTTP 200 responses and logos/images render. This is maintainer-reported runtime evidence for that environment, not a claim about every IPTV host.
+- Removed temporary Ktor request/response diagnostics and Coil failure `println` messages that were added solely to diagnose Linux artwork loading. Normal AppImage launches should not emit per-artwork request logs.
+- The programme detail dialog used `ContentScale.Crop` in a fixed-height frame, which center-crops image content when the image and container aspect ratios differ. Changed it to `ContentScale.Fit` so the full artwork is visible; letterboxing is possible for differing aspect ratios. Visual validation after CI is still required.
+- Ktor's Java engine brings SLF4J API 2.0.19 transitively. Since Mawjic does not enable library logging, the desktop runtime adds the matching `slf4j-nop` provider to suppress the harmless startup warning without enabling additional logs.
+- Static source-sanity, dependency-inventory and localization checks are run during bundle preparation. This update is **not yet compiled or CI-verified**. After applying, run hosted CI and check Linux artwork framing and clean AppImage startup output.

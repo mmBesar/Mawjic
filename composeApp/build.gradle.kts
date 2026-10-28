@@ -102,6 +102,9 @@ kotlin {
             dependencies {
                 implementation(compose.desktop.currentOs)
                 implementation("io.ktor:ktor-client-java:3.6.0")
+                // Ktor uses SLF4J API; Mawjic does not enable library logging, so
+                // provide the intentional no-op backend to avoid startup warnings.
+                implementation("org.slf4j:slf4j-nop:2.0.19")
                 implementation("net.java.dev.jna:jna:5.19.1")
             }
         }

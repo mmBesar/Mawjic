@@ -12,6 +12,7 @@ The versions below are declared by the build. This is a dependency inventory, no
 | AndroidX Media3 | 1.11.1 | Android media playback, HLS, DASH, RTSP, UI | [AndroidX Media3](https://github.com/androidx/media) |
 | Coil 3 | 3.5.0 | Lazy artwork loading and image cache; release notes target Compose 1.11.1 and Android compile SDK 36 | [Coil](https://github.com/coil-kt/coil) |
 | Ktor client | 3.6.0 | Coil network engine integration | [Ktor](https://github.com/ktorio/ktor) |
+| SLF4J NOP provider (`slf4j-nop`) | 2.0.19 | Quiet optional Ktor library logging when the app does not configure a logger | [SLF4J](https://www.slf4j.org/) |
 | JNA | 5.19.1 | Android AAR provides Android native dispatch; desktop JVM JAR calls the Rust C ABI | [JNA](https://github.com/java-native-access/jna) |
 | kotlinx.coroutines | 1.11.0 | Coroutine and IO dispatch | [kotlinx.coroutines](https://github.com/Kotlin/kotlinx.coroutines) |
 | Rust standard library | target Rust stable | Parser and C ABI; no third-party Cargo crates | [Rust](https://www.rust-lang.org/) |
