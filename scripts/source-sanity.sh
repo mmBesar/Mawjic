@@ -85,6 +85,12 @@ assert 'TrackSelectionDialogBuilder(context, audioTrackLabel, player, C.TRACK_TY
 assert 'TrackSelectionDialogBuilder(context, subtitlesTrackLabel, player, C.TRACK_TYPE_TEXT)' in android_player
 assert 'TrackSelectionDialogBuilder(context, tr("Audio")' not in android_player
 assert 'TrackSelectionDialogBuilder(context, tr("Subtitles")' not in android_player
+# Fullscreen orientation is temporary: landscape while fullscreen, restore prior request on exit/disposal.
+assert 'private fun Context.findActivity(): Activity?' in android_player
+assert 'ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE' in android_player
+assert 'originalRequestedOrientation' in android_player
+assert 'DisposableEffect(activity)' in android_player
+assert 'onDispose { activity?.requestedOrientation = originalRequestedOrientation }' in android_player
 assert 'currentProgrammeTitle = currentProgramme?.title.orEmpty()' in app
 assert 'currentProgrammeSubtitle = currentProgramme?.subtitle.orEmpty()' in app
 listener_at = android_player.index('player.addListener(listener)')

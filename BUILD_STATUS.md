@@ -113,3 +113,11 @@ At the time this historical entry was written, the follow-ups had received stati
 - Root cause in the source: `tr()` is `@Composable` because it reads `LocalAppLanguage.current`, but it was called from ordinary `TextButton.onClick` callbacks when constructing `TrackSelectionDialogBuilder`. The dialog builder itself is not the problem.
 - Fix: resolve `audioTrackLabel` and `subtitlesTrackLabel` during `PlaybackPane` composition and capture those plain strings in the click callbacks. Add source-sanity regression guards against calling `tr()` inside these track-dialog builder expressions.
 - Static checks and guarded-updater tests are run for this follow-up bundle. **Not yet verified:** Kotlin/Gradle compilation, hosted CI after this fix, or Android runtime behavior. The next CI run is the authority for compilation.
+
+
+## Fullscreen orientation follow-up (2026-10-27; update ZIP, not yet CI-verified)
+
+- Fullscreen on Android requests `SCREEN_ORIENTATION_SENSOR_LANDSCAPE`; exiting fullscreen restores the Activity's previous requested orientation, and player disposal restores it even if the player closes while fullscreen. The Activity context is unwrapped defensively from ContextWrapper instances.
+- Added source-sanity guards for the landscape request and restoration path.
+- Static source sanity, script syntax and guarded bundle dry-run/apply/idempotence/refusal checks are the only checks available here. This is not a Kotlin/Gradle compile or device test.
+- **Not yet verified:** actual rotation on physical phones; behavior with device rotation lock, multi-window/foldables, Android 16+ large-screen orientation policy, and restoration after closing/back/navigation.

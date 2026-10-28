@@ -1,6 +1,10 @@
 package app.mawjic.tv
 
+import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import android.content.Intent
 import android.net.Uri
 import android.os.Handler
@@ -69,6 +73,17 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TrackSelectionDialogBuilder
 
+private fun Context.findActivity(): Activity? {
+    var current: Context? = this
+    while (current != null) {
+        if (current is Activity) return current
+        val next = (current as? ContextWrapper)?.baseContext ?: return null
+        if (next === current) return null
+        current = next
+    }
+    return null
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 actual fun PlaybackPane(
@@ -84,6 +99,10 @@ actual fun PlaybackPane(
     preferredExternalPlayer: String,
 ) {
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    val originalRequestedOrientation = remember(activity) {
+        activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    }
     // Resolve composable localisation during composition; click callbacks are not composable.
     val audioTrackLabel = tr("Audio")
     val subtitlesTrackLabel = tr("Subtitles")
@@ -177,6 +196,18 @@ actual fun PlaybackPane(
     }
     var showOsd by remember(url) { mutableStateOf(true) }
     var isFullscreen by remember(url) { mutableStateOf(false) }
+    // A fullscreen request rotates phones to landscape without permanently locking
+    // the app; the previous Activity request is restored on exit and disposal.
+    LaunchedEffect(activity, isFullscreen) {
+        activity?.requestedOrientation = if (isFullscreen) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            originalRequestedOrientation
+        }
+    }
+    DisposableEffect(activity) {
+        onDispose { activity?.requestedOrientation = originalRequestedOrientation }
+    }
     var playbackIsPlaying by remember(url) { mutableStateOf(false) }
     var osdRevision by remember(url) { mutableIntStateOf(0) }
     val playerViewRef = remember(player) { AtomicReference<PlayerView?>(null) }
