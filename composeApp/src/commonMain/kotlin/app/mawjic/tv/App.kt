@@ -1,5 +1,8 @@
 package app.mawjic.tv
 
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +25,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -303,7 +308,7 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                                 compactLayout = compactLayout,
                                 channels = channels,
                                 nowEpoch = now,
-                                programmesFor = { channel -> programmesFor(channel) },
+                                epgIndex = epgIndex,
                                 query = query,
                                 logoFor = { channel -> ArtworkResolver.resolve(channel, guide.channelLogos, ArtworkResolver.mappings(), guide.channelNames) },
                                 onChannelSelected = { selectedChannel = it },
@@ -424,7 +429,7 @@ private fun GuideTimeline(
     compactLayout: Boolean,
     channels: List<Channel>,
     nowEpoch: Long,
-    programmesFor: (Channel) -> List<Programme>,
+    epgIndex: EpgIndex,
     query: String,
     logoFor: (Channel) -> String,
     onChannelSelected: (Channel) -> Unit,
@@ -439,11 +444,12 @@ private fun GuideTimeline(
     val timelineWidth = hourWidth * GUIDE_TIMELINE_HOURS
     val markerX = (((nowEpoch - rangeStart).coerceAtLeast(0L).toDouble() / 3600.0) * hourWidth.value).toFloat().dp
     val clockTicks = (0..GUIDE_TIMELINE_HOURS).map { index -> rangeStart + index * 3600L }
-    // programmesFor closes over the current EPG index; do not remember this list
-    // using only channels/query, or a newly loaded guide leaves search results stale.
-    val filteredChannels = if (query.isBlank()) channels else channels.filter { channel ->
-        channel.name.contains(query, true) || channel.group.contains(query, true) || programmesFor(channel).any {
-            it.title.contains(query, true) || it.subtitle.contains(query, true) || it.episodeNumber.contains(query, true)
+    // Cache search results, invalidating them when the playlist, query, or loaded EPG changes.
+    val filteredChannels = remember(channels, query, epgIndex) {
+        if (query.isBlank()) channels else channels.filter { channel ->
+            channel.name.contains(query, true) || channel.group.contains(query, true) || epgIndex.programmesFor(channel).any {
+                it.title.contains(query, true) || it.subtitle.contains(query, true) || it.episodeNumber.contains(query, true)
+            }
         }
     }
     val markerColor = Color(0xFFFF536D)
@@ -473,7 +479,23 @@ private fun GuideTimeline(
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
                 items(filteredChannels, key = { "guide:${it.url}" }) { channel ->
                     val logo = logoFor(channel)
-                    val programmes = programmesFor(channel).filter { it.end > rangeStart && it.start < rangeEnd }
+                    val programmes = remember(channel, epgIndex, rangeStart, rangeEnd) {
+                        epgIndex.programmesFor(channel).filter { it.end > rangeStart && it.start < rangeEnd }
+                    }
+                    // The clock marker moves every 15 seconds; programme geometry does not.
+                    // Cache clipped x/width values until the EPG, range, or compact width changes.
+                    val timelineProgrammes = remember(programmes, rangeStart, rangeEnd, hourWidth) {
+                        val pixelsPerHour = hourWidth.value.toDouble()
+                        programmes.mapNotNull { programme ->
+                            val from = maxOf(programme.start, rangeStart)
+                            val until = minOf(programme.end, rangeEnd)
+                            if (until <= from) null else {
+                                val x = ((from - rangeStart).toDouble() / 3600.0 * pixelsPerHour).toFloat().dp
+                                val width = (((until - from).toDouble() / 3600.0 * pixelsPerHour).toFloat().coerceAtLeast(36f)).dp
+                                Triple(programme, x, width)
+                            }
+                        }
+                    }
                     Row(Modifier.fillMaxWidth().height(78.dp), verticalAlignment = Alignment.CenterVertically) {
                         Row(
                             Modifier.width(channelColumnWidth).fillMaxHeight().clip(RoundedCornerShape(10.dp))
@@ -487,20 +509,48 @@ private fun GuideTimeline(
                             }
                             Text(channel.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                         }
-                        Box(Modifier.weight(1f).fillMaxHeight().horizontalScroll(scroll)) {
-                            Box(Modifier.width(timelineWidth).fillMaxHeight()) {
-                                Row(Modifier.fillMaxSize()) {
-                                    (0 until GUIDE_TIMELINE_HOURS).forEach {
-                                        Box(Modifier.width(hourWidth).fillMaxHeight().border(.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = .18f)))
+                        Box(
+                            Modifier.weight(1f).fillMaxHeight().clipToBounds()
+                                .scrollable(state = scroll, orientation = Orientation.Horizontal),
+                        ) {
+                            Box(
+                                Modifier.offset { IntOffset(-scroll.value, 0) }
+                                    .requiredWidth(timelineWidth)
+                                    .fillMaxHeight(),
+                            ) {
+                                val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = .18f)
+                                androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                                    val lineWidth = .5.dp.toPx()
+                                    val hourPx = hourWidth.toPx()
+                                    for (hour in (0 until GUIDE_TIMELINE_HOURS)) {
+                                        val x = hour * hourPx
+                                        drawLine(
+                                            color = gridColor,
+                                            start = androidx.compose.ui.geometry.Offset(x, 0f),
+                                            end = androidx.compose.ui.geometry.Offset(x, size.height),
+                                            strokeWidth = lineWidth,
+                                        )
                                     }
+                                    drawLine(
+                                        color = gridColor,
+                                        start = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                                        end = androidx.compose.ui.geometry.Offset(size.width, size.height),
+                                        strokeWidth = lineWidth,
+                                    )
+                                    drawLine(
+                                        color = gridColor,
+                                        start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                        end = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                                        strokeWidth = lineWidth,
+                                    )
+                                    drawLine(
+                                        color = gridColor,
+                                        start = androidx.compose.ui.geometry.Offset(0f, size.height),
+                                        end = androidx.compose.ui.geometry.Offset(size.width, size.height),
+                                        strokeWidth = lineWidth,
+                                    )
                                 }
-                                programmes.forEach { programme ->
-                                    val from = maxOf(programme.start, rangeStart)
-                                    val until = minOf(programme.end, rangeEnd)
-                                    if (until > from) {
-                                        val pixelsPerHour = hourWidth.value.toDouble()
-                                        val x = ((from - rangeStart).toDouble() / 3600.0 * pixelsPerHour).toFloat().dp
-                                        val width = (((until - from).toDouble() / 3600.0 * pixelsPerHour).toFloat().coerceAtLeast(36f)).dp
+                                timelineProgrammes.forEach { (programme, x, width) ->
                                         Card(
                                             modifier = Modifier.offset(x = x, y = 7.dp).width(width).height(64.dp).padding(end = 3.dp).clickable { onProgrammeSelected(programme) },
                                             shape = RoundedCornerShape(8.dp),
@@ -514,7 +564,6 @@ private fun GuideTimeline(
                                                 if (width.value >= 90f) Text("${formatTime(programme.start)}–${formatTime(programme.end)}", maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f))
                                             }
                                         }
-                                    }
                                 }
                                 Box(Modifier.offset(x = markerX - 1.dp).width(2.dp).fillMaxHeight().background(markerColor))
                                 Box(Modifier.offset(x = markerX - 4.dp, y = 0.dp).size(8.dp).clip(CircleShape).background(markerColor))
