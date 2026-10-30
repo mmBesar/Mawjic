@@ -21,8 +21,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,8 +37,9 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -61,6 +64,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -71,6 +76,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.platform.LocalLayoutDirection
 import coil3.ImageLoader
@@ -79,6 +85,10 @@ import coil3.compose.AsyncImagePainter
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
+import app.mawjic.tv.generated.resources.Res
+import app.mawjic.tv.generated.resources.mawjic_logo
+import org.jetbrains.compose.resources.ExperimentalResourceApi
+import org.jetbrains.compose.resources.painterResource
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
@@ -139,13 +149,29 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
     var group by remember { mutableStateOf("All channels") }
     var showSources by remember { mutableStateOf(false) }
     var selectedProgramme by remember { mutableStateOf<Programme?>(null) }
+    var scheduleChannel by remember { mutableStateOf<Channel?>(null) }
     var selectedChannel by remember { mutableStateOf<Channel?>(null) }
+    var sourceMenuExpanded by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
     var sourceReloadVersion by remember { mutableIntStateOf(0) }
     var sourceLoadGeneration by remember { mutableIntStateOf(0) }
     var loadedSourceIdentity by remember { mutableStateOf("") }
     var status by remember(settings.language) { mutableStateOf(if (settings.language == "Arabic") "أضف قائمة تشغيل M3U لبدء المشاهدة." else "Add an M3U playlist to start watching.") }
     val groups = remember(channels) { listOf("All channels") + channels.map(Channel::group).filter(String::isNotBlank).distinct().sorted() }
+    val activeSource = settings.sources.firstOrNull { it.id == settings.activeSourceId }
+
+    fun activateSource(sourceId: String) {
+        val source = settings.sources.firstOrNull { it.id == sourceId } ?: return
+        sourceMenuExpanded = false
+        if (source.id == settings.activeSourceId) return
+        onSettings(settings.copy(
+            activeSourceId = source.id,
+            playlistSource = source.playlistSource,
+            guideSource = source.guideSource,
+            allowInsecureTls = source.allowInsecureTls,
+        ))
+        sourceReloadVersion++
+    }
     var clockEpoch by remember { mutableStateOf(Platform.nowEpochSeconds()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -251,9 +277,7 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
-                            Text("M", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Black)
-                        }
+                        MawjicBrandIcon(Modifier.size(40.dp))
                         Column {
                             Text("Mawjic", fontWeight = FontWeight.Bold)
                             if (!compactLayout) Text(tr("Streaming, your wave."), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f))
@@ -262,10 +286,45 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                 },
                 actions = {
                     if (page != Page.SETTINGS) {
-                        TextButton(onClick = { searchExpanded = !searchExpanded; if (!searchExpanded) query = "" }) { Text(if (searchExpanded && compactLayout) "×" else "⌕") }
+                        IconButton(
+                            onClick = { searchExpanded = !searchExpanded; if (!searchExpanded) query = "" },
+                            modifier = Modifier.size(48.dp),
+                        ) { Text(if (searchExpanded && compactLayout) "×" else "⌕", fontSize = 25.sp) }
                     }
-                    if (!compactLayout) TextButton(onClick = { showSources = true }) { Text(tr("＋  Manage sources")) }
-                    else TextButton(onClick = { showSources = true }) { Text(tr("＋")) }
+                    Box {
+                        TextButton(
+                            onClick = { sourceMenuExpanded = true },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Text(
+                                activeSource?.name ?: tr("Select source"),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = if (compactLayout) 112.dp else 190.dp),
+                            )
+                            Text("⌄", fontSize = 18.sp)
+                        }
+                        DropdownMenu(
+                            expanded = sourceMenuExpanded,
+                            onDismissRequest = { sourceMenuExpanded = false },
+                        ) {
+                            settings.sources.forEach { source ->
+                                DropdownMenuItem(
+                                    text = { Text((if (source.id == settings.activeSourceId) "✓  " else "") + source.name) },
+                                    onClick = { activateSource(source.id) },
+                                )
+                            }
+                            if (settings.sources.isNotEmpty()) Divider()
+                            DropdownMenuItem(
+                                text = { Text(tr("Manage sources")) },
+                                onClick = { sourceMenuExpanded = false; showSources = true },
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = { showSources = true },
+                        modifier = Modifier.size(48.dp),
+                    ) { Text("+", fontSize = 26.sp, fontWeight = FontWeight.Medium) }
                     Spacer(Modifier.width(4.dp))
                 },
                 scrollBehavior = androidx.compose.material3.TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState()),
@@ -329,7 +388,7 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
             }
             Column(Modifier.weight(1f).fillMaxHeight().padding(start = if (compactLayout) 12.dp else 24.dp, end = if (compactLayout) 12.dp else 24.dp, top = 12.dp, bottom = 12.dp)) {
                 when {
-                    page == Page.SETTINGS -> SettingsPage(settings, onSettings, compactLayout, onDone = { page = Page.LIVE })
+                    page == Page.SETTINGS -> SettingsPage(settings, onSettings, compactLayout, onDone = { page = Page.LIVE }, onManageSources = { showSources = true })
                     else -> {
                         if (!compactLayout && page != Page.GUIDE) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -360,35 +419,10 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                                 query = query,
                                 logoFor = { channel -> ArtworkResolver.resolve(channel, guide.channelLogos, ArtworkResolver.mappings(), guide.channelNames) },
                                 onChannelSelected = { selectedChannel = it },
+                                onChannelGuideSelected = { scheduleChannel = it },
                                 onProgrammeSelected = { selectedProgramme = it },
                             )
                         } else {
-                        if (channels.isNotEmpty() && !compactLayout) {
-                            Card(
-                                modifier = Modifier.fillMaxWidth().height(156.dp).clickable { selectedChannel = channels.firstOrNull() },
-                                shape = RoundedCornerShape(22.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .52f)),
-                            ) {
-                                Row(Modifier.fillMaxSize().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Box(Modifier.size(90.dp).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
-                                        val hero = channels.firstOrNull()
-                                        val logo = hero?.let { ArtworkResolver.resolve(it, guide.channelLogos, ArtworkResolver.mappings(), guide.channelNames) }.orEmpty()
-                                        ChannelLogo(
-                                            name = hero?.name.orEmpty(),
-                                            logo = logo,
-                                            modifier = Modifier.fillMaxSize().padding(9.dp),
-                                        )
-                                    }
-                                    Spacer(Modifier.width(18.dp))
-                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                        Text(tr("READY TO WATCH"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                        Text(channels.first().name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(current(channels.first())?.title ?: tr("Choose a channel to start streaming"), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
-                                    Button(onClick = { selectedChannel = channels.first() }) { Text(tr("Watch now  →")) }
-                                }
-                            }
-                        }
                         Row(
                             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -427,7 +461,7 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                                             onSettings(settings.copy(favourites = next))
                                         },
                                         onPlay = { selectedChannel = channel },
-                                        onProgramme = { selectedProgramme = it },
+                                        onOpenGuide = { scheduleChannel = channel },
                                     )
                                 }
                             }
@@ -487,6 +521,19 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
             if (activeWasDeleted) sourceReloadVersion++
         },
     )
+    scheduleChannel?.let { channel ->
+        ChannelScheduleDialog(
+            channel = channel,
+            logo = ArtworkResolver.resolve(channel, guide.channelLogos, ArtworkResolver.mappings(), guide.channelNames),
+            programmes = programmesFor(channel),
+            nowEpoch = now,
+            onDismiss = { scheduleChannel = null },
+            onProgrammeSelected = { programme ->
+                scheduleChannel = null
+                selectedProgramme = programme
+            },
+        )
+    }
     selectedProgramme?.let { ProgrammeDialog(it) { selectedProgramme = null } }
     selectedChannel?.let { channel ->
         val channelIndex = channels.indexOfFirst { it.url == channel.url }
@@ -516,6 +563,7 @@ private fun GuideTimeline(
     query: String,
     logoFor: (Channel) -> String,
     onChannelSelected: (Channel) -> Unit,
+    onChannelGuideSelected: (Channel) -> Unit,
     onProgrammeSelected: (Programme) -> Unit,
 ) {
     val scroll = rememberScrollState()
@@ -523,7 +571,7 @@ private fun GuideTimeline(
     val range = guideTimelineRange(nowEpoch)
     val rangeStart = range.startEpoch
     val rangeEnd = range.endEpoch
-    val channelColumnWidth = if (compactLayout) 112.dp else 170.dp
+    val channelColumnWidth = if (compactLayout) 76.dp else 88.dp
     var zoomStep by remember { mutableIntStateOf(1) }
     val zoomLevels = listOf(0.75f, 1f, 1.5f, 2f, 3f, 4f)
     val zoom = zoomLevels[zoomStep]
@@ -662,16 +710,19 @@ private fun GuideTimeline(
                         Row(
                             Modifier.width(channelColumnWidth).fillMaxHeight().clip(RoundedCornerShape(10.dp))
                                 .background(MaterialTheme.colorScheme.surface).clickable { onChannelSelected(channel) }
-                                .padding(horizontal = 8.dp, vertical = 7.dp),
+                                .padding(horizontal = 4.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.Center,
                         ) {
-                            Box(Modifier.size(38.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-                                ChannelLogo(channel.name, logo, Modifier.fillMaxSize().padding(3.dp))
+                            Box(
+                                Modifier.fillMaxWidth().height(62.dp).clip(RoundedCornerShape(9.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                ChannelLogo(channel.name, logo, Modifier.fillMaxSize().padding(3.dp), showNameFallback = true)
                             }
-                            Text(channel.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                         }
-                        Box(Modifier.weight(1f).fillMaxHeight().horizontalScroll(scroll)) {
+                        Box(Modifier.weight(1f).fillMaxHeight().clickable { onChannelGuideSelected(channel) }.horizontalScroll(scroll)) {
                             Box(Modifier.width(timelineWidth).fillMaxHeight()) {
                                 val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = .18f)
                                 androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
@@ -735,6 +786,17 @@ private fun GuideTimeline(
     }
 }
 
+@OptIn(ExperimentalResourceApi::class)
+@Composable
+private fun MawjicBrandIcon(modifier: Modifier = Modifier) {
+    Image(
+        painter = painterResource(Res.drawable.mawjic_logo),
+        contentDescription = "Mawjic",
+        modifier = modifier,
+        contentScale = ContentScale.Fit,
+    )
+}
+
 @Composable
 private fun EmptyState(loading: Boolean, status: String, onAdd: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -748,7 +810,12 @@ private fun EmptyState(loading: Boolean, status: String, onAdd: () -> Unit) {
 }
 
 @Composable
-private fun ChannelLogo(name: String, logo: String, modifier: Modifier = Modifier) {
+private fun ChannelLogo(
+    name: String,
+    logo: String,
+    modifier: Modifier = Modifier,
+    showNameFallback: Boolean = false,
+) {
     var failed by remember(logo) { mutableStateOf(false) }
     if (logo.isNotBlank() && !failed) {
         AsyncImage(
@@ -756,20 +823,18 @@ private fun ChannelLogo(name: String, logo: String, modifier: Modifier = Modifie
             contentDescription = "$name logo",
             modifier = modifier,
             contentScale = ContentScale.Fit,
-            onState = { state ->
-                if (state is AsyncImagePainter.State.Error) {
-                    failed = true
-                }
-            },
+            onState = { state -> if (state is AsyncImagePainter.State.Error) failed = true },
         )
     } else {
         Box(modifier, contentAlignment = Alignment.Center) {
             Text(
-                name.firstOrNull()?.uppercase() ?: "TV",
+                if (showNameFallback) name else name.firstOrNull()?.uppercase() ?: "TV",
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.titleLarge,
-                maxLines = 1,
+                style = if (showNameFallback) MaterialTheme.typography.labelSmall else MaterialTheme.typography.titleLarge,
+                maxLines = if (showNameFallback) 3 else 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
         }
     }
@@ -777,11 +842,17 @@ private fun ChannelLogo(name: String, logo: String, modifier: Modifier = Modifie
 
 @Composable
 private fun ChannelRow(
-    channel: Channel, logo: String, current: Programme?, next: Programme?, favourite: Boolean,
-    onFavourite: () -> Unit, onPlay: () -> Unit, onProgramme: (Programme) -> Unit,
+    channel: Channel,
+    logo: String,
+    current: Programme?,
+    next: Programme?,
+    favourite: Boolean,
+    onFavourite: () -> Unit,
+    onPlay: () -> Unit,
+    onOpenGuide: () -> Unit,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onPlay),
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(16.dp),
     ) {
@@ -792,17 +863,27 @@ private fun ChannelRow(
                     verticalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Box(Modifier.size(48.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f)), contentAlignment = Alignment.Center) {
+                        Box(
+                            Modifier.size(56.dp).clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f))
+                                .clickable(onClick = onPlay),
+                            contentAlignment = Alignment.Center,
+                        ) {
                             ChannelLogo(channel.name, logo, Modifier.fillMaxSize().padding(4.dp))
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(channel.name, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text(if (channel.group.isBlank()) tr("Uncategorized") else channel.group, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        IconButton(onClick = onFavourite) { Text(if (favourite) "★" else "☆", color = if (favourite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = .65f)) }
-                        Button(onClick = onPlay, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)) { Text(tr("Watch")) }
+                        IconButton(onClick = onFavourite, modifier = Modifier.size(48.dp)) {
+                            Text(if (favourite) "★" else "☆", color = if (favourite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
+                        }
                     }
-                    Column(Modifier.fillMaxWidth().padding(start = 2.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                            .clickable(onClick = onOpenGuide).padding(start = 2.dp, end = 2.dp, top = 4.dp, bottom = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Box(Modifier.size(7.dp).clip(CircleShape).background(if (current != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -814,7 +895,7 @@ private fun ChannelRow(
                         }
                         Text(next?.let { programme ->
                             listOf("${tr("Next · ")}${programme.title}", programme.subtitle).filter(String::isNotBlank).joinToString(" · ")
-                        } ?: current?.let { "${tr("Until ")}${formatTime(it.end)}" } ?: tr("Guide not available"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        } ?: current?.let { "${tr("Until ")}${formatTime(it.end)}" } ?: tr("Guide not available"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                         current?.let {
                             val now = Platform.nowEpochSeconds()
                             val fraction = ((now - it.start).toFloat() / (it.end - it.start).coerceAtLeast(1)).coerceIn(0f, 1f)
@@ -822,19 +903,32 @@ private fun ChannelRow(
                                 Box(Modifier.fillMaxWidth(fraction).height(3.dp).background(MaterialTheme.colorScheme.primary))
                             }
                         }
-                        if (current != null) TextButton(onClick = { onProgramme(current) }, contentPadding = PaddingValues(0.dp)) { Text(tr("Details")) }
+                        Text(tr("Open channel guide"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     }
                 }
             } else {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-                    Box(Modifier.size(54.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f)), contentAlignment = Alignment.Center) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(13.dp),
+                ) {
+                    Box(
+                        Modifier.size(60.dp).clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f))
+                            .clickable(onClick = onPlay),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         ChannelLogo(channel.name, logo, Modifier.fillMaxSize().padding(5.dp))
                     }
                     Column(Modifier.width(145.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(channel.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(if (channel.group.isBlank()) tr("Uncategorized") else channel.group, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(
+                        Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                            .clickable(onClick = onOpenGuide).padding(vertical = 5.dp, horizontal = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Box(Modifier.size(7.dp).clip(CircleShape).background(if (current != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -846,7 +940,7 @@ private fun ChannelRow(
                         }
                         Text(next?.let { programme ->
                             listOf("${tr("Next · ")}${programme.title}", programme.subtitle).filter(String::isNotBlank).joinToString(" · ")
-                        } ?: current?.let { "${tr("Until ")}${formatTime(it.end)}" } ?: tr("Guide not available"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        } ?: current?.let { "${tr("Until ")}${formatTime(it.end)}" } ?: tr("Guide not available"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                         current?.let {
                             val now = Platform.nowEpochSeconds()
                             val fraction = ((now - it.start).toFloat() / (it.end - it.start).coerceAtLeast(1)).coerceIn(0f, 1f)
@@ -855,9 +949,9 @@ private fun ChannelRow(
                             }
                         }
                     }
-                    if (current != null) TextButton(onClick = { onProgramme(current) }) { Text(tr("Details")) }
-                    IconButton(onClick = onFavourite) { Text(if (favourite) "★" else "☆", color = if (favourite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = .65f)) }
-                    Button(onClick = onPlay, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp)) { Text(tr("Watch")) }
+                    IconButton(onClick = onFavourite, modifier = Modifier.size(48.dp)) {
+                        Text(if (favourite) "★" else "☆", color = if (favourite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
+                    }
                 }
             }
         }
@@ -865,7 +959,7 @@ private fun ChannelRow(
 }
 
 @Composable
-private fun SettingsPage(settings: AppSettings, onSettings: (AppSettings) -> Unit, compactLayout: Boolean, onDone: () -> Unit) {
+private fun SettingsPage(settings: AppSettings, onSettings: (AppSettings) -> Unit, compactLayout: Boolean, onDone: () -> Unit, onManageSources: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (!compactLayout) {
             Text(tr("Make it yours"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -873,9 +967,22 @@ private fun SettingsPage(settings: AppSettings, onSettings: (AppSettings) -> Uni
         }
         SettingsChoices(settings, onSettings)
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .4f))) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(tr("Playback & sources"), fontWeight = FontWeight.SemiBold)
-                Text(tr("Android uses Media3. Linux opens streams in mpv. Manage M3U and XMLTV source profiles from the source manager in the top bar."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
+                Text(tr("Android uses Media3. Linux opens streams in mpv."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(tr("TV sources"), fontWeight = FontWeight.SemiBold)
+                        Text(
+                            settings.sources.firstOrNull { it.id == settings.activeSourceId }?.name ?: tr("No active source"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Button(onClick = onManageSources) { Text(tr("Manage sources")) }
+                }
                 Text(tr("Artwork is loaded from playlist and XMLTV image URLs. No third-party scraping is performed."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
                 Text(tr("Self-signed TLS is disabled by default. The unsafe opt-in is for trusted servers only; certificate hostname checks remain enabled."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
@@ -1104,6 +1211,86 @@ private fun SourceDialog(
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(tr("Cancel")) } },
         )
+    }
+}
+
+@Composable
+private fun ChannelScheduleDialog(
+    channel: Channel,
+    logo: String,
+    programmes: List<Programme>,
+    nowEpoch: Long,
+    onDismiss: () -> Unit,
+    onProgrammeSelected: (Programme) -> Unit,
+) {
+    val upcoming = remember(channel, programmes, nowEpoch) {
+        programmes.filter { it.end > nowEpoch }.sortedBy(Programme::start)
+    }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(.96f).fillMaxHeight(.90f).widthIn(max = 920.dp),
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+        ) {
+            Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(
+                        Modifier.size(58.dp).clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        ChannelLogo(channel.name, logo, Modifier.fillMaxSize().padding(4.dp))
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(channel.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(tr("Programme schedule"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f))
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) { Text("×", fontSize = 24.sp) }
+                }
+                Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = .35f))
+                if (upcoming.isEmpty()) {
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text(tr("No upcoming programmes"), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f))
+                    }
+                } else {
+                    LazyColumn(
+                        Modifier.weight(1f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                        contentPadding = PaddingValues(bottom = 8.dp),
+                    ) {
+                        items(upcoming, key = { "${it.start}:${it.end}:${it.title}" }) { programme ->
+                            val isNow = programme.start <= nowEpoch && programme.end > nowEpoch
+                            Card(
+                                modifier = Modifier.fillMaxWidth().clickable { onProgrammeSelected(programme) },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isNow) MaterialTheme.colorScheme.primary.copy(alpha = .15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f),
+                                ),
+                            ) {
+                                Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.width(104.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Text("${formatTime(programme.start)} – ${formatTime(programme.end)}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                        if (isNow) Text(tr("Now"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                    }
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Text(programme.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        programme.subtitle.takeIf(String::isNotBlank)?.let {
+                                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .78f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        }
+                                        programme.episodeNumber.takeIf(String::isNotBlank)?.let {
+                                            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

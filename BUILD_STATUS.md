@@ -189,3 +189,13 @@ At the time this historical entry was written, the follow-ups had received stati
 - Hosted CI exposed an inconsistent test fixture: its `activeSourceId` selected the `home` profile, but the legacy `playlistSource` / `guideSource` compatibility fields pointed to a different `source.test` playlist. `AppSettings.load()` correctly restores the active profile URLs, so the round-trip assertion failed despite the profile data being valid.
 - Corrected the fixture so the legacy URL fields mirror the selected `home` profile, matching the invariant maintained by the source activation/edit/delete UI. Production source-loading behavior is unchanged.
 - This is a test-fixture correction only. Static source checks do not replace the next hosted `desktopTest`, Android compile, and Linux package CI run.
+
+## Cross-platform channel interaction refinement (2026-10-31; pending hosted CI)
+
+- Removed the redundant Desktop "Ready to Watch" hero card; the channel list now starts immediately with the first channel on Live TV and Favourites.
+- Removed per-channel Watch buttons on Android and Desktop. The channel logo is the explicit play target; the current/next programme information area opens a dedicated, near-fullscreen channel schedule with programme times, XMLTV subtitles, episode numbers, and programme details. Programme entries open the existing programme-details dialog.
+- Updated the TV Guide channel rail to show a larger logo without a redundant channel-name label; the channel name is shown as a three-line fallback only when no usable logo can load. The logo/label target plays the channel; the timeline opens that channel's schedule and programme cards open details.
+- Replaced the boxed letter in the app bar with the bundled Mawjic brand image through Compose Multiplatform resources. Increased search and add-source controls to 48dp touch targets.
+- Added an app-bar source dropdown for quick profile switching, retained the top-bar source manager action, and added a dedicated Manage Sources action under Settings > Playback & Sources.
+- Added Arabic translations and source-sanity regression guards for these UI contracts.
+- **Static verification performed:** `bash scripts/source-sanity.sh` (dependency inventory, localization and repository hygiene) and `git diff --check`. **Not run:** Kotlin compilation, Android APK build, Desktop build, or runtime verification. Compose resource generation and platform dialog layout must be validated by GitHub Actions. Do not run local Gradle or install build dependencies on the maintainer's limited internet.

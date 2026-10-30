@@ -78,6 +78,30 @@ assert 'programmesInRange(channel, visibleStartEpoch, visibleEndEpoch)' in app, 
 assert 'drawWithContent' in app and 'drawCircle(' in app, 'The guide must use one continuous current-time indicator overlay'
 assert 'visibleTimelineProgrammes' not in app, 'Avoid filtering all computed timeline geometry a second time'
 assert 'GuideVerticalScrollbar(' in app, 'The guide must expose the Desktop vertical scrollbar hook'
+assert 'MawjicBrandIcon(Modifier.size(40.dp))' in app and (root / 'composeApp/src/commonMain/composeResources/drawable/mawjic_logo.png').is_file(), \
+    'The application top bar must use the bundled Mawjic brand icon'
+assert 'ChannelScheduleDialog(' in app and 'onChannelGuideSelected' in app, \
+    'Channel EPG rows must open the dedicated channel programme schedule'
+assert 'showNameFallback = true' in app, 'TV Guide channel labels must use the name only when artwork is unavailable'
+assert 'Manage sources' in app and 'activeSource?.name' in app, \
+    'The top bar must provide quick source switching and source management'
+assert 'onManageSources' in app and 'TV sources' in app, \
+    'Settings must expose source management'
+assert 'READY TO WATCH' not in app and 'Watch now  →' not in app, \
+    'Remove the redundant Ready to Watch hero card'
+assert 'Text(tr("Watch"))' not in app, 'Channel rows must not have redundant Watch buttons'
+assert app.count('Modifier.size(56.dp)') >= 1 and 'clickable(onClick = onPlay)' in app, \
+    'Channel logo targets must remain the explicit play action on Android and Desktop'
+assert app.count('clickable(onClick = onOpenGuide)') >= 2, \
+    'Current/next EPG areas must open the channel-specific schedule on Android and Desktop'
+assert 'clickable { onChannelGuideSelected(channel) }.horizontalScroll(scroll)' in app, \
+    'Guide timeline channel rows must expose their own schedule separately from logo playback'
+assert 'DropdownMenuItem(' in app and 'activateSource(source.id)' in app, \
+    'The app bar must allow direct switching between saved source profiles'
+assert 'painterResource(Res.drawable.mawjic_logo)' in app, \
+    'The top bar must load the bundled Mawjic brand image through Compose resources'
+assert build.count('compose.resources {') == 1, \
+    'Compose resource package configuration must be declared exactly once'
 assert (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/GuideScrollbar.kt').is_file(), 'Common scrollbar expect declaration is missing'
 desktop_platform = (root / 'composeApp/src/desktopMain/kotlin/app/mawjic/tv/Platform.desktop.kt').read_text(encoding='utf-8')
 assert 'rememberScrollbarAdapter(scrollState = state)' in desktop_platform, 'Desktop scrollbar must use the guide LazyListState'

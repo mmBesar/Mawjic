@@ -9,6 +9,10 @@ plugins {
     id("com.android.application")
 }
 
+compose.resources {
+    packageOfResClass = "app.mawjic.tv.generated.resources"
+}
+
 val versionNameValue = providers.gradleProperty("versionName").orElse("0.1.0").get()
 val versionCodeValue = providers.gradleProperty("versionCode").orElse(providers.environmentVariable("VERSION_CODE")).orElse("1").get().toInt()
 val rustRoot = rootProject.layout.projectDirectory.dir("rust-core")
