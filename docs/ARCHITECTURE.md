@@ -39,3 +39,9 @@ Treat each service as an M3U/XMLTV source producer: users paste the playlist and
 ## ADR-007 — Release signing and update identity
 
 Android application ID is `app.mawjic.tv`. Release artefacts are signed only when all configured key material exists; no release task may silently fall back to the debug key. A version tag provides `versionName`; CI run number provides a monotonically increasing `versionCode` within the GitHub Actions repository. The same private signing key must be retained for all updates.
+
+## ADR-008 — Named IPTV source profiles
+
+Mawjic stores named source profiles in the platform preference store. Each profile owns its M3U endpoint, optional XMLTV endpoint, and explicit self-signed TLS opt-in. One profile is active at a time; loading remains sequential and generation-guarded so stale/cancelled requests cannot overwrite the active profile. The existing platform reader continues to handle HTTP(S), local paths, `file://`, Android document URIs, and gzip XMLTV. The previous single-source preference keys are retained and migrated once into a `legacy-default` profile so existing installations do not need to re-enter their URLs. The active profile's TLS setting is mirrored into the existing global playback/source preference to avoid changing the current Media3/mpv trust configuration in this stage; with no active profile, the secure default is restored.
+
+Persistent per-profile playlist/EPG snapshots and offline recovery are deliberately separate follow-up work. Do not claim stale-data recovery until cache format/versioning, independent playlist/EPG freshness, atomic writes, source identity checks, corrupt-cache handling, and tests are implemented.

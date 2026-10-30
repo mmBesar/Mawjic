@@ -100,6 +100,15 @@ common_tests = (root / 'composeApp/src/commonTest/kotlin/app/mawjic/tv/CoreInteg
 assert 'guideTimelineTicksUseFiveMinuteStepsWithHalfHourBoundaries' in common_tests and 'assertEquals(145, ticks.size)' in common_tests
 assert 'surfaceContainerHigh = containerHigh' in theme and 'surfaceContainer = container' in theme, \
     'Material 3 menus and dialogs need app-derived surface container colours'
+assert '@Serializable\ndata class SourceProfile' in theme, 'Named IPTV source profiles must be serializable'
+assert 'restoreSourceProfiles(rawSources, legacyPlaylist, legacyGuide, legacyTls)' in theme, \
+    'Existing single-source preferences must migrate into a profile'
+assert 'Platform.setPreference("sourcesJson"' in theme and 'Platform.setPreference("activeSourceId"' in theme, \
+    'Named source profiles and active selection must persist'
+assert 'SourceDialog(' in app and 'sources = settings.sources' in app and 'onActivate = ' in app, \
+    'The UI must expose saved source activation and management'
+assert 'legacySingleSourceMigratesOnceAndAnExplicitEmptyProfileListStaysEmpty' in common_tests, \
+    'Source settings migration needs regression coverage'
 rust = (root / 'rust-core/src/lib.rs').read_text(encoding='utf-8')
 android_player = (root / 'composeApp/src/androidMain/kotlin/app/mawjic/tv/Playback.android.kt').read_text(encoding='utf-8')
 assert 'val subtitle: String = ""' in models and 'val episodeNumber: String = ""' in models

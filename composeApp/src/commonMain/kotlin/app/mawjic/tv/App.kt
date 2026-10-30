@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
@@ -80,6 +81,7 @@ import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -116,7 +118,12 @@ fun MawjicApp() {
             LocalLayoutDirection provides (if (settings.language == "Arabic") LayoutDirection.Rtl else LayoutDirection.Ltr),
         ) {
             SystemBarsEffect(colorScheme.background.toArgb().toLong(), useDarkSystemIcons)
-            MainScreen(settings, onSettings = { settings = it.also(AppSettings::save) })
+            MainScreen(settings, onSettings = { next ->
+                val synchronizedSources = next.sources.map { source ->
+                    if (source.id == next.activeSourceId) source.copy(allowInsecureTls = next.allowInsecureTls) else source
+                }
+                settings = next.copy(sources = synchronizedSources).also(AppSettings::save)
+            })
         }
     }
 }
@@ -135,6 +142,8 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
     var selectedChannel by remember { mutableStateOf<Channel?>(null) }
     var loading by remember { mutableStateOf(false) }
     var sourceReloadVersion by remember { mutableIntStateOf(0) }
+    var sourceLoadGeneration by remember { mutableIntStateOf(0) }
+    var loadedSourceIdentity by remember { mutableStateOf("") }
     var status by remember(settings.language) { mutableStateOf(if (settings.language == "Arabic") "أضف قائمة تشغيل M3U لبدء المشاهدة." else "Add an M3U playlist to start watching.") }
     val groups = remember(channels) { listOf("All channels") + channels.map(Channel::group).filter(String::isNotBlank).distinct().sorted() }
     var clockEpoch by remember { mutableStateOf(Platform.nowEpochSeconds()) }
@@ -145,9 +154,12 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
         }
     }
 
-    suspend fun loadSources(playlistSource: String, guideSource: String) {
+    suspend fun loadSources(playlistSource: String, guideSource: String, generation: Int) {
+        fun isCurrentLoad(): Boolean = generation == sourceLoadGeneration
         if (playlistSource.isBlank()) {
-            status = if (settings.language == "Arabic") "أضف قائمة تشغيل M3U لبدء المشاهدة." else "Add an M3U playlist to start watching."
+            if (isCurrentLoad()) {
+                status = if (settings.language == "Arabic") "أضف قائمة تشغيل M3U لبدء المشاهدة." else "Add an M3U playlist to start watching."
+            }
             return
         }
         loading = true
@@ -158,10 +170,14 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                 withContext(Dispatchers.Default) {
                     PlatformBridge.parseChannelsJson(Platform.parseM3u(playlistText))
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
+                if (!isCurrentLoad()) return
                 status = "${if (settings.language == "Arabic") "تعذّر تحميل قائمة التشغيل" else "Could not load playlist"}: ${error.message ?: error::class.simpleName ?: "unknown error"}"
                 return
             }
+            if (!isCurrentLoad()) return
 
             // Commit the playlist immediately. A broken or unavailable guide must not hide channels.
             channels = parsed
@@ -178,18 +194,42 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                 val nextGuide = withContext(Dispatchers.Default) {
                     PlatformBridge.parseGuideJson(Platform.parseXmltv(guideText))
                 }
+                if (!isCurrentLoad()) return
                 guide = nextGuide
                 status = if (settings.language == "Arabic") "تم تحميل ${parsed.size} قناة · ${nextGuide.programmes.size} برنامجًا." else "${parsed.size} channels loaded · ${nextGuide.programmes.size} programmes loaded."
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
+                if (!isCurrentLoad()) return
                 status = "${parsed.size} channels loaded · ${if (settings.language == "Arabic") "تعذّر تحميل دليل البرامج" else "EPG failed"}: ${error.message ?: error::class.simpleName ?: "unknown error"}"
             }
         } finally {
-            loading = false
+            // A cancelled/older source load must never clear the new source's loading state.
+            if (isCurrentLoad()) loading = false
         }
     }
 
-    LaunchedEffect(settings.playlistSource, settings.guideSource, sourceReloadVersion) {
-        if (settings.playlistSource.isNotBlank()) loadSources(settings.playlistSource, settings.guideSource)
+    LaunchedEffect(settings.activeSourceId, settings.playlistSource, settings.guideSource, sourceReloadVersion) {
+        val generation = ++sourceLoadGeneration
+        val sourceIdentity = listOf(
+            settings.activeSourceId.orEmpty(),
+            settings.playlistSource,
+            settings.guideSource,
+        ).joinToString("\u0000")
+        if (loadedSourceIdentity != sourceIdentity) {
+            loadedSourceIdentity = sourceIdentity
+            channels = emptyList()
+            guide = GuideData(emptyMap(), emptyMap(), emptyList())
+            group = "All channels"
+        }
+        if (settings.playlistSource.isNotBlank()) {
+            loadSources(settings.playlistSource, settings.guideSource, generation)
+        } else {
+            loading = false
+            channels = emptyList()
+            guide = GuideData(emptyMap(), emptyMap(), emptyList())
+            status = if (settings.language == "Arabic") "أضف قائمة تشغيل M3U لبدء المشاهدة." else "Add an M3U playlist to start watching."
+        }
     }
 
     val now = clockEpoch
@@ -224,7 +264,7 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                     if (page != Page.SETTINGS) {
                         TextButton(onClick = { searchExpanded = !searchExpanded; if (!searchExpanded) query = "" }) { Text(if (searchExpanded && compactLayout) "×" else "⌕") }
                     }
-                    if (!compactLayout) TextButton(onClick = { showSources = true }) { Text(tr("＋  Add source")) }
+                    if (!compactLayout) TextButton(onClick = { showSources = true }) { Text(tr("＋  Manage sources")) }
                     else TextButton(onClick = { showSources = true }) { Text(tr("＋")) }
                     Spacer(Modifier.width(4.dp))
                 },
@@ -402,14 +442,49 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
     }
 
     if (showSources) SourceDialog(
-        playlistSource = settings.playlistSource, guideSource = settings.guideSource,
+        sources = settings.sources,
+        activeSourceId = settings.activeSourceId,
         loading = loading,
         onDismiss = { showSources = false },
-        onSave = { playlist, xmltv ->
-            val next = settings.copy(playlistSource = playlist.trim(), guideSource = xmltv.trim())
-            onSettings(next)
-            sourceReloadVersion++ // Also reload when the URLs are unchanged but TLS settings were updated.
+        onActivate = { sourceId ->
+            val source = settings.sources.firstOrNull { it.id == sourceId }
+            if (source != null) {
+                onSettings(settings.copy(
+                    activeSourceId = source.id,
+                    playlistSource = source.playlistSource,
+                    guideSource = source.guideSource,
+                    allowInsecureTls = source.allowInsecureTls,
+                ))
+                sourceReloadVersion++
+                showSources = false
+            }
+        },
+        onSave = { source ->
+            val updated = settings.sources.toMutableList()
+            val index = updated.indexOfFirst { it.id == source.id }
+            if (index >= 0) updated[index] = source else updated += source
+            onSettings(settings.copy(
+                sources = updated,
+                activeSourceId = source.id,
+                playlistSource = source.playlistSource,
+                guideSource = source.guideSource,
+                allowInsecureTls = source.allowInsecureTls,
+            ))
+            sourceReloadVersion++
             showSources = false
+        },
+        onDelete = { sourceId ->
+            val remaining = settings.sources.filterNot { it.id == sourceId }
+            val activeWasDeleted = settings.activeSourceId == sourceId
+            val nextActive = if (activeWasDeleted) remaining.firstOrNull() else remaining.firstOrNull { it.id == settings.activeSourceId }
+            onSettings(settings.copy(
+                sources = remaining,
+                activeSourceId = nextActive?.id,
+                playlistSource = nextActive?.playlistSource.orEmpty(),
+                guideSource = nextActive?.guideSource.orEmpty(),
+                allowInsecureTls = nextActive?.allowInsecureTls ?: false,
+            ))
+            if (activeWasDeleted) sourceReloadVersion++
         },
     )
     selectedProgramme?.let { ProgrammeDialog(it) { selectedProgramme = null } }
@@ -800,7 +875,7 @@ private fun SettingsPage(settings: AppSettings, onSettings: (AppSettings) -> Uni
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .4f))) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(tr("Playback & sources"), fontWeight = FontWeight.SemiBold)
-                Text(tr("Android uses Media3. Linux opens streams in mpv. Add M3U and XMLTV sources from the ‘Add source’ action in the top bar."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
+                Text(tr("Android uses Media3. Linux opens streams in mpv. Manage M3U and XMLTV source profiles from the source manager in the top bar."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
                 Text(tr("Artwork is loaded from playlist and XMLTV image URLs. No third-party scraping is performed."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
                 Text(tr("Self-signed TLS is disabled by default. The unsafe opt-in is for trusted servers only; certificate hostname checks remain enabled."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
@@ -901,29 +976,135 @@ private fun colorForAccent(flavour: String, index: Int): Color {
 }
 
 @Composable
-private fun SourceDialog(playlistSource: String, guideSource: String, loading: Boolean, onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
-    var playlist by remember(playlistSource) { mutableStateOf(playlistSource) }
-    var xmltv by remember(guideSource) { mutableStateOf(guideSource) }
+private fun SourceDialog(
+    sources: List<SourceProfile>,
+    activeSourceId: String?,
+    loading: Boolean,
+    onDismiss: () -> Unit,
+    onActivate: (String) -> Unit,
+    onSave: (SourceProfile) -> Unit,
+    onDelete: (String) -> Unit,
+) {
+    var editingId by remember(sources, activeSourceId) {
+        mutableStateOf(sources.firstOrNull { it.id == activeSourceId }?.id.orEmpty())
+    }
+    val selectedSource = sources.firstOrNull { it.id == editingId }
+    var name by remember(editingId, sources) { mutableStateOf(selectedSource?.name.orEmpty()) }
+    var playlist by remember(editingId, sources) { mutableStateOf(selectedSource?.playlistSource.orEmpty()) }
+    var xmltv by remember(editingId, sources) { mutableStateOf(selectedSource?.guideSource.orEmpty()) }
+    var allowInsecureTls by remember(editingId, sources) { mutableStateOf(selectedSource?.allowInsecureTls ?: false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(tr("Connect your TV sources")) },
+        title = { Text(tr("Manage TV sources")) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                Text(tr("Use an HTTP(S) URL, a local file path, file:// URI, or an Android document URI. Gzip XMLTV (.xml.gz) is supported."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .7f))
+            Column(
+                Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(tr("Each source keeps its own playlist, guide and TLS preference."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .7f))
+                if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                Text(tr("Saved sources"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                if (sources.isEmpty()) {
+                    Text(tr("No saved sources yet."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
+                } else {
+                    sources.forEach { source ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                .background(if (source.id == activeSourceId) MaterialTheme.colorScheme.primaryContainer.copy(alpha = .45f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .35f))
+                                .padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(source.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                                Text(source.playlistSource, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f))
+                                if (source.id == activeSourceId) Text(tr("Active"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            }
+                            TextButton(
+                                enabled = source.id != activeSourceId,
+                                onClick = { onActivate(source.id) },
+                            ) { Text(tr("Use")) }
+                            TextButton(onClick = { editingId = source.id }) { Text(tr("Edit")) }
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { editingId = "" }) { Text(tr("New source")) }
+                }
+                Text(tr(if (selectedSource == null) "New source details" else "Edit source"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(tr("Source name")) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(playlist, { playlist = it }, label = { Text(tr("M3U / M3U8 playlist *")) }, modifier = Modifier.weight(1f), singleLine = true)
+                    OutlinedTextField(
+                        value = playlist,
+                        onValueChange = { playlist = it },
+                        label = { Text(tr("M3U / M3U8 playlist *")) },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                    )
                     DocumentPickerButton(tr("Browse")) { playlist = it }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(xmltv, { xmltv = it }, label = { Text(tr("XMLTV guide (optional)")) }, modifier = Modifier.weight(1f), singleLine = true)
+                    OutlinedTextField(
+                        value = xmltv,
+                        onValueChange = { xmltv = it },
+                        label = { Text(tr("XMLTV guide (optional)")) },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                    )
                     DocumentPickerButton(tr("Browse")) { xmltv = it }
                 }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(tr("Allow self-signed HTTPS certificates"), style = MaterialTheme.typography.bodyMedium)
+                        Text(tr("Unsafe: disables certificate-chain verification for sources and playback. Keep off unless you trust the server/network."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                    Switch(checked = allowInsecureTls, onCheckedChange = { allowInsecureTls = it })
+                }
+                Text(tr("Use an HTTP(S) URL, a local file path, file:// URI, or an Android document URI. Gzip XMLTV (.xml.gz) is supported."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f))
                 Text(tr("Tunarr and ErsatzTV work through their standard M3U and XMLTV endpoints; enter the URLs copied from their UI."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f))
+                if (selectedSource != null) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { confirmDelete = true }) { Text(tr("Delete"), color = MaterialTheme.colorScheme.error) }
+                    }
+                }
             }
         },
-        confirmButton = { Button(onClick = { onSave(playlist, xmltv) }, enabled = playlist.isNotBlank() && !loading) { Text(tr(if (loading) "Loading…" else "Save & load")) } },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val id = selectedSource?.id ?: newSourceProfileId()
+                    val cleanName = name.trim().ifBlank { "Source ${sources.size + 1}" }
+                    onSave(SourceProfile(id, cleanName, playlist.trim(), xmltv.trim(), allowInsecureTls))
+                },
+                enabled = playlist.isNotBlank(),
+            ) { Text(tr("Save & activate")) }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Cancel")) } },
     )
+
+    if (confirmDelete && selectedSource != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(tr("Delete source?")) },
+            text = { Text(tr("This removes the saved source from Mawjic.")) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDelete(selectedSource.id)
+                    editingId = ""
+                    confirmDelete = false
+                }) { Text(tr("Delete"), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(tr("Cancel")) } },
+        )
+    }
 }
 
 @Composable

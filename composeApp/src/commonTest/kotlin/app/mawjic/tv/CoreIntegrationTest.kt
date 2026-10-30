@@ -96,6 +96,11 @@ https://example.test/kids.m3u8
             playlistSource = "https://source.test/playlist.m3u", guideSource = "https://source.test/guide.xml",
             favourites = setOf("https://source.test/channel.m3u8"), language = "Arabic", allowInsecureTls = true,
             externalPlayer = "VLC",
+            sources = listOf(
+                SourceProfile("home", "تونار المنزل", "https://home.test/channels.m3u", "https://home.test/guide.xml", true),
+                SourceProfile("backup", "Backup", "https://backup.test/channels.m3u", "", false),
+            ),
+            activeSourceId = "home",
         )
         original.save()
         val loaded = AppSettings.load()
@@ -109,8 +114,34 @@ https://example.test/kids.m3u8
         assertEquals(original.playlistSource, loaded.playlistSource)
         assertEquals(original.guideSource, loaded.guideSource)
         assertEquals(original.favourites, loaded.favourites)
+        assertEquals(original.sources, loaded.sources)
+        assertEquals(original.activeSourceId, loaded.activeSourceId)
     }
 
+
+    @Test
+    fun legacySingleSourceMigratesOnceAndAnExplicitEmptyProfileListStaysEmpty() {
+        val migrated = restoreSourceProfiles(
+            rawJson = "",
+            legacyPlaylistSource = "https://legacy.test/playlist.m3u",
+            legacyGuideSource = "https://legacy.test/guide.xml",
+            legacyAllowInsecureTls = true,
+        )
+        assertEquals(1, migrated.size)
+        assertEquals("legacy-default", migrated.single().id)
+        assertEquals("My IPTV", migrated.single().name)
+        assertEquals("https://legacy.test/playlist.m3u", migrated.single().playlistSource)
+        assertEquals("https://legacy.test/guide.xml", migrated.single().guideSource)
+        assertTrue(migrated.single().allowInsecureTls)
+
+        val explicitlyCleared = restoreSourceProfiles(
+            rawJson = "[]",
+            legacyPlaylistSource = "https://legacy.test/old.m3u",
+            legacyGuideSource = "",
+            legacyAllowInsecureTls = false,
+        )
+        assertTrue(explicitlyCleared.isEmpty())
+    }
 
     @Test
     fun everyFlavourAccentCombinationHasAValidPaletteAndAccessibleForeground() {

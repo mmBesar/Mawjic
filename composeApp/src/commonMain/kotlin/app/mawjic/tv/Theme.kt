@@ -8,11 +8,58 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.random.Random
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 val flavours = listOf("Latte", "Frappé", "Macchiato", "Mocha")
 val accents = listOf("Rosewater", "Flamingo", "Pink", "Mauve", "Red", "Maroon", "Peach", "Yellow", "Green", "Teal", "Sky", "Sapphire", "Blue", "Lavender")
 val appearanceModes = listOf("System", "Light", "Dark", "AMOLED Black")
 val accentSources = listOf("Catppuccin", "Android Dynamic", "Linux Native System Colours")
+
+private val sourceProfilesJson = Json { ignoreUnknownKeys = true }
+
+@Serializable
+data class SourceProfile(
+    val id: String,
+    val name: String,
+    val playlistSource: String,
+    val guideSource: String = "",
+    val allowInsecureTls: Boolean = false,
+)
+
+internal fun newSourceProfileId(): String =
+    "source-${Platform.nowEpochSeconds()}-${Random.nextLong()}"
+
+/** Restores saved profiles and migrates the former single-source preferences once. */
+internal fun restoreSourceProfiles(
+    rawJson: String,
+    legacyPlaylistSource: String,
+    legacyGuideSource: String,
+    legacyAllowInsecureTls: Boolean,
+): List<SourceProfile> {
+    val decoded = rawJson.takeIf(String::isNotBlank)?.let { raw ->
+        runCatching { sourceProfilesJson.decodeFromString<List<SourceProfile>>(raw) }.getOrNull()
+    }
+    if (decoded != null) {
+        return decoded.asSequence()
+            .filter { it.id.isNotBlank() && it.name.isNotBlank() && it.playlistSource.isNotBlank() }
+            .distinctBy(SourceProfile::id)
+            .toList()
+    }
+    if (legacyPlaylistSource.isBlank()) return emptyList()
+    return listOf(
+        SourceProfile(
+            id = "legacy-default",
+            name = "My IPTV",
+            playlistSource = legacyPlaylistSource,
+            guideSource = legacyGuideSource,
+            allowInsecureTls = legacyAllowInsecureTls,
+        ),
+    )
+}
 
 data class AppSettings(
     val flavour: String = "Mocha",
@@ -25,6 +72,8 @@ data class AppSettings(
     val playlistSource: String = "",
     val guideSource: String = "",
     val favourites: Set<String> = emptySet(),
+    val sources: List<SourceProfile> = emptyList(),
+    val activeSourceId: String? = null,
 ) {
     fun save() {
         Platform.setPreference("flavour", flavour)
@@ -36,6 +85,11 @@ data class AppSettings(
         Platform.setPreference("externalPlayer", externalPlayer)
         Platform.setPreference("playlistSource", playlistSource)
         Platform.setPreference("guideSource", guideSource)
+        val savedSources = sources.map { source ->
+            if (source.id == activeSourceId) source.copy(allowInsecureTls = allowInsecureTls) else source
+        }
+        Platform.setPreference("sourcesJson", sourceProfilesJson.encodeToString(savedSources))
+        Platform.setPreference("activeSourceId", activeSourceId.orEmpty())
         Platform.setPreference("favourites", favourites.joinToString("\n"))
     }
     companion object {
@@ -43,16 +97,45 @@ data class AppSettings(
             // Restore the persisted TLS policy before the first source/artwork client is created.
             Platform.configureTlsPolicy()
             val favs = Platform.getPreference("favourites", "").lineSequence().filter(String::isNotBlank).toSet()
+            val legacyPlaylist = Platform.getPreference("playlistSource", "")
+            val legacyGuide = Platform.getPreference("guideSource", "")
+            val legacyTls = Platform.getPreference("allowInsecureTls", "false").toBoolean()
+            val rawSources = Platform.getPreference("sourcesJson", "")
+            val decodedSources = rawSources.takeIf(String::isNotBlank)?.let { raw ->
+                runCatching { sourceProfilesJson.decodeFromString<List<SourceProfile>>(raw) }.getOrNull()
+            }
+            val restoredSources = restoreSourceProfiles(rawSources, legacyPlaylist, legacyGuide, legacyTls)
+            val requestedActiveId = Platform.getPreference("activeSourceId", "")
+            val activeSource = restoredSources.firstOrNull { it.id == requestedActiveId }
+                ?: restoredSources.firstOrNull()
+
+            // Persist the migration immediately; old versions can still read the legacy URL keys.
+            if (decodedSources == null && restoredSources.isNotEmpty()) {
+                Platform.setPreference("sourcesJson", sourceProfilesJson.encodeToString(restoredSources))
+            }
+            if (activeSource != null && requestedActiveId != activeSource.id) {
+                Platform.setPreference("activeSourceId", activeSource.id)
+            }
+            val activeAllowInsecureTls = activeSource?.allowInsecureTls ?: false
+            if (legacyTls != activeAllowInsecureTls) {
+                Platform.setPreference("allowInsecureTls", activeAllowInsecureTls.toString())
+            }
+
             return AppSettings(
                 flavour = Platform.getPreference("flavour", "Mocha").takeIf(flavours::contains) ?: "Mocha",
                 accent = Platform.getPreference("accent", "Mauve").takeIf(accents::contains) ?: "Mauve",
                 appearance = Platform.getPreference("appearance", "System").takeIf(appearanceModes::contains) ?: "System",
                 accentSource = Platform.getPreference("accentSource", "Catppuccin").takeIf(accentSources::contains) ?: "Catppuccin",
                 language = Platform.getPreference("language", "English").takeIf(supportedLanguages::contains) ?: "English",
-                allowInsecureTls = Platform.getPreference("allowInsecureTls", "false").toBoolean(),
+                allowInsecureTls = activeAllowInsecureTls,
                 externalPlayer = Platform.getPreference("externalPlayer", "In-app").takeIf { it in listOf("In-app", "VLC", "MPV") } ?: "In-app",
-                playlistSource = Platform.getPreference("playlistSource", ""),
-                guideSource = Platform.getPreference("guideSource", ""), favourites = favs,
+                // A decoded empty profile list means the user intentionally removed all sources.
+                // Do not resurrect the legacy single-source URLs in that case.
+                playlistSource = activeSource?.playlistSource.orEmpty(),
+                guideSource = activeSource?.guideSource.orEmpty(),
+                favourites = favs,
+                sources = restoredSources,
+                activeSourceId = activeSource?.id,
             )
         }
     }
