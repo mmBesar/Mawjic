@@ -183,3 +183,9 @@ At the time this historical entry was written, the follow-ups had received stati
 - Added tests for profile settings round-trip, legacy single-source migration, and keeping an explicitly empty profile list empty. Explicitly empty saved profiles do not resurrect the legacy single-source URLs on restart.
 - **Not included in this stage:** persistent playlist/EPG snapshots, offline/stale-data recovery, source connection probing, automatic `url-tvg` discovery, or parser diagnostics. Those require a separate implementation and tests; this patch does not claim offline recovery yet.
 - Static verification performed during preparation: source sanity and localization checks, and `git diff --check`. **Not run:** Kotlin compilation, common/desktop tests, Android build, or device runtime. Use GitHub Actions as the first full build/test authority; do not run local Gradle downloads on the maintainer's bandwidth-limited connection.
+
+## Multi-source settings round-trip test correction (2026-10-30)
+
+- Hosted CI exposed an inconsistent test fixture: its `activeSourceId` selected the `home` profile, but the legacy `playlistSource` / `guideSource` compatibility fields pointed to a different `source.test` playlist. `AppSettings.load()` correctly restores the active profile URLs, so the round-trip assertion failed despite the profile data being valid.
+- Corrected the fixture so the legacy URL fields mirror the selected `home` profile, matching the invariant maintained by the source activation/edit/delete UI. Production source-loading behavior is unchanged.
+- This is a test-fixture correction only. Static source checks do not replace the next hosted `desktopTest`, Android compile, and Linux package CI run.

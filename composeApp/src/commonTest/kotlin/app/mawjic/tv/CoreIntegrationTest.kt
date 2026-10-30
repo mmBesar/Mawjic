@@ -93,7 +93,7 @@ https://example.test/kids.m3u8
         assertEquals(14, accents.size)
         val original = AppSettings(
             flavour = "Frappé", accent = "Teal", appearance = "AMOLED Black", accentSource = "Catppuccin",
-            playlistSource = "https://source.test/playlist.m3u", guideSource = "https://source.test/guide.xml",
+            playlistSource = "https://home.test/channels.m3u", guideSource = "https://home.test/guide.xml",
             favourites = setOf("https://source.test/channel.m3u8"), language = "Arabic", allowInsecureTls = true,
             externalPlayer = "VLC",
             sources = listOf(
