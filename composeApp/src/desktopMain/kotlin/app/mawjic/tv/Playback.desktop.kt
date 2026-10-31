@@ -12,6 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +41,8 @@ actual fun PlaybackPane(
     channelLogo: String,
     currentProgrammeTitle: String,
     currentProgrammeSubtitle: String,
+    nextProgrammeTitle: String,
+    nextProgrammeSubtitle: String,
     previousChannel: Channel?,
     nextChannel: Channel?,
     onChannelSelected: (Channel) -> Unit,
@@ -103,6 +106,10 @@ actual fun PlaybackPane(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(state, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .78f))
                 Text("Playback opens in mpv's own fullscreen window. If it is behind this dialog, switch to the mpv window. mpv's on-screen controller includes audio and subtitle track selection.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .63f))
+                if (nextProgrammeTitle.isNotBlank()) {
+                    Text("${tr("Next · ")}${bidiIsolate(nextProgrammeTitle)}", fontWeight = FontWeight.SemiBold)
+                    if (nextProgrammeSubtitle.isNotBlank()) Text(bidiIsolate(nextProgrammeSubtitle), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f))
+                }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { previousChannel?.let(onChannelSelected) }, enabled = previousChannel != null) { Text("← Previous") }
                     Button(onClick = { nextChannel?.let(onChannelSelected) }, enabled = nextChannel != null) { Text("Next →") }

@@ -5,6 +5,7 @@
     </queries>
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <application android:allowBackup="false" android:label="Mawjic" android:icon="@drawable/mawjic_icon" android:theme="@style/AppTheme" android:usesCleartextTraffic="true">
         <activity android:name="app.mawjic.tv.android.MainActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden|uiMode" android:screenOrientation="unspecified">
             <intent-filter>

@@ -8,6 +8,13 @@ import kotlin.math.max
 
 class CoreIntegrationTest {
     @Test
+    fun bidiIsolationKeepsMixedScriptContentInsideUnicodeIsolates() {
+        assertEquals("\u2068قناة News HD\u2069", bidiIsolate("قناة News HD"))
+        assertEquals("\u2068S01E12\u2069", bidiIsolate("S01E12"))
+        assertEquals("", bidiIsolate(""))
+    }
+
+    @Test
     fun guideTimelineWindowCovers12HoursAndFloorsToHalfHour() {
         val nowEpoch = 27L * 3600L + 20L * 60L
         val range = guideTimelineRange(nowEpoch)
@@ -101,6 +108,7 @@ https://example.test/kids.m3u8
                 SourceProfile("backup", "Backup", "https://backup.test/channels.m3u", "", false),
             ),
             activeSourceId = "home",
+            epgRefreshIntervalMinutes = 180,
         )
         original.save()
         val loaded = AppSettings.load()
@@ -116,6 +124,7 @@ https://example.test/kids.m3u8
         assertEquals(original.favourites, loaded.favourites)
         assertEquals(original.sources, loaded.sources)
         assertEquals(original.activeSourceId, loaded.activeSourceId)
+        assertEquals(original.epgRefreshIntervalMinutes, loaded.epgRefreshIntervalMinutes)
     }
 
 

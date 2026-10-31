@@ -73,6 +73,9 @@ assert 'xmltvSubtitleAndOnscreenEpisodeNumberSurviveNativeParsing' in common_tes
 assert 'guideTimelineWindowCovers12HoursAndFloorsToHalfHour' in common_tests, \
     'The 12-hour EPG time window must have a regression test'
 assert 'sourceReloadVersion' in app and 'hourWidth.value.toDouble()' in app
+assert 'Key.One' in app and 'Key.Two' in app and 'Key.Three' in app and 'Key.Four' in app and 'searchFocusRequester.requestFocus()' in app, 'Desktop keyboard navigation/search shortcuts are missing'
+assert 'refreshGuideOnly()' in app and 'epgRefreshIntervalMinutes' in app and 'guideRefreshRequest++' in app, 'EPG-only manual and scheduled refresh is missing'
+assert 'setPreferences(values: Map<String, String>)' in (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/Models.kt').read_text(encoding='utf-8'), 'Settings must be persisted as one batched preference snapshot'
 assert 'guideTimelineRange(nowEpoch)' in app, 'EPG timeline must use the tested 12-hour range helper'
 assert 'programmesInRange(channel, visibleStartEpoch, visibleEndEpoch)' in app, 'Guide cards must use the visible-window interval index'
 assert 'drawWithContent' in app and 'drawCircle(' in app, 'The guide must use one continuous current-time indicator overlay'
@@ -94,7 +97,7 @@ assert app.count('Modifier.size(56.dp)') >= 1 and 'clickable(onClick = onPlay)' 
     'Channel logo targets must remain the explicit play action on Android and Desktop'
 assert app.count('clickable(onClick = onOpenGuide)') >= 2, \
     'Current/next EPG areas must open the channel-specific schedule on Android and Desktop'
-assert 'clickable { onChannelGuideSelected(channel) }.horizontalScroll(scroll)' in app, \
+assert 'clickable { onChannelGuideSelected(channel) }.guideTimelineMouseDrag(scroll).horizontalScroll(scroll)' in app, \
     'Guide timeline channel rows must expose their own schedule separately from logo playback'
 assert 'DropdownMenuItem(' in app and 'activateSource(source.id)' in app, \
     'The app bar must allow direct switching between saved source profiles'
@@ -113,7 +116,7 @@ assert 'var zoomStep by remember' in app and 'zoomLevels = listOf(0.75f, 1f, 1.5
     'EPG must default to the enlarged timeline and provide user-controlled zoom'
 assert 'height(98.dp)' in app and 'height(86.dp)' in app, 'EPG rows/cards need room for subtitles and episode metadata'
 assert 'current?.subtitle?.takeIf(String::isNotBlank)' in app, 'Channel rows must show current programme subtitles'
-assert 'programme.subtitle).filter(String::isNotBlank)' in app, 'Channel rows must show next programme subtitles'
+assert 'next.subtitle.takeIf(String::isNotBlank)?.let' in app and 'Text(bidiIsolate(it)' in app, 'Channel rows must show next programme subtitles on a separate bidi-isolated line'
 assert 'containerColor = MaterialTheme.colorScheme.surfaceContainer' in app, 'Bottom navigation must use the app surface colour'
 models = (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/Models.kt').read_text(encoding='utf-8')
 assert 'internal const val GUIDE_TIMELINE_HOURS = 12' in models
@@ -196,5 +199,35 @@ assert ':composeApp:packageRpm' in ci and ':composeApp:packageRpm' in release
 assert 'packageTarGz' not in ci + release
 assert 'AppImage' in ci and 'AppImage' in release
 assert not (root / '.github/dependabot.yml').exists()
+# Arabic typography, mixed-direction display text, channel-name playback and player gestures.
+bidi = (root / 'composeApp/src/commonMain/kotlin/app/mawjic/tv/Bidi.kt').read_text(encoding='utf-8')
+assert r'\u2068' in bidi and r'\u2069' in bidi, 'Dynamic mixed-script text must use Unicode directional isolates'
+assert 'appTypography(settings.language)' in app and 'Font(Res.font.noto_naskh_arabic_ui_regular' in theme
+assert 'Font(Res.font.roboto_regular' in theme
+for font in ('noto_naskh_arabic_ui_regular.ttf', 'noto_naskh_arabic_ui_bold.ttf', 'roboto_regular.ttf', 'roboto_bold.ttf'):
+    assert (root / 'composeApp/src/commonMain/composeResources/font' / font).is_file(), f'missing bundled font {font}'
+for notice in ('licenses/Apache-2.0.txt', 'licenses/Noto-Naskh-Arabic-UI-copyright.txt', 'licenses/Roboto-copyright.txt'):
+    assert (root / notice).is_file(), f'missing bundled font licence notice {notice}'
+assert 'Noto Naskh Arabic UI' in (root / 'THIRD_PARTY.md').read_text(encoding='utf-8')
+assert app.count('Modifier.clickable(onClick = onPlay)') >= 2, 'Channel-name text must independently start playback in compact and wide channel rows'
+assert 'STREAM_MUSIC' in android_player and 'screenBrightness = adjusted' in android_player
+manifest = (root / 'composeApp/src/androidMain/AndroidManifest.xml').read_text(encoding='utf-8')
+assert 'android.permission.MODIFY_AUDIO_SETTINGS' in manifest, 'Android volume gestures require the normal MODIFY_AUDIO_SETTINGS permission'
+assert 'Brightness' in android_player and 'Volume' in android_player and 'awaitEachGesture' in android_player
+assert 'guideTimelineMouseDrag(scroll)' in app and 'Slider(' in app and 'Platform.isDesktop' in app
+assert 'val isDesktop: Boolean' in models
+assert 'actual val isDesktop: Boolean = true' in desktop_platform
+assert 'actual val isDesktop: Boolean = false' in android_platform
+assert 'bidiIsolationKeepsMixedScriptContentInsideUnicodeIsolates' in common_tests
+# EPG freshness, desktop settings responsiveness, navigation and Watch next-show metadata.
+assert 'epgRefreshIntervalMinutes' in theme and 'epgRefreshIntervalMinutes' in common_tests
+assert 'Platform.setPreferences(' in theme and 'actual fun setPreferences(values: Map<String, String>)' in desktop_platform and 'actual fun setPreferences(values: Map<String, String>)' in android_platform
+assert 'withContext(Dispatchers.IO) { snapshot.save() }' in app, 'Settings persistence must not block Compose input/rendering'
+assert 'refreshGuideOnly()' in app and 'Guide refresh failed · previous guide retained' in app, 'EPG-only refresh must preserve last successful guide data on failure'
+assert 'Key.One' in app and 'Key.Two' in app and 'Key.Three' in app and 'Key.Four' in app
+assert 'Slider(' in app and 'zoomStep = it.roundToInt()' in app, 'Guide zoom must be controlled by a discrete slider'
+assert 'nextProgrammeTitle = next(channel)?.title.orEmpty()' in app and 'nextProgrammeSubtitle = next(channel)?.subtitle.orEmpty()' in app
+assert 'nextProgrammeTitle: String' in android_player and 'nextProgrammeSubtitle: String' in android_player
+assert 'nextProgrammeTitle: String' in (root / 'composeApp/src/desktopMain/kotlin/app/mawjic/tv/Playback.desktop.kt').read_text(encoding='utf-8')
 print('Source sanity passed: Rust manifest/lockfile, package ID, dependency inventory, localization, release signing, Linux formats, audit path, and repository hygiene.')
 PY

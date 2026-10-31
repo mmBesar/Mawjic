@@ -76,6 +76,7 @@ internal object InsecureTlsSupport {
 }
 
 actual object Platform {
+    actual val isDesktop: Boolean = false
     private lateinit var appContext: Context
     fun initialize(context: Context) { appContext = context.applicationContext }
     fun documentContext(): Context = appContext
@@ -83,6 +84,16 @@ actual object Platform {
     actual fun setPreference(key: String, value: String) {
         appContext.getSharedPreferences("mawjic", Context.MODE_PRIVATE).edit().putString(key, value).apply()
         if (key == "allowInsecureTls") configureTlsPolicy()
+    }
+    actual fun setPreferences(values: Map<String, String>) {
+        val preferences = appContext.getSharedPreferences("mawjic", Context.MODE_PRIVATE)
+        val tlsChanged = values["allowInsecureTls"]?.let {
+            preferences.getString("allowInsecureTls", "false") != it
+        } ?: false
+        val editor = preferences.edit()
+        values.forEach { (key, value) -> editor.putString(key, value) }
+        editor.apply()
+        if (tlsChanged) configureTlsPolicy()
     }
 
     actual fun configureTlsPolicy() {
@@ -186,3 +197,7 @@ actual fun GuideVerticalScrollbar(
     state: androidx.compose.foundation.lazy.LazyListState,
     modifier: androidx.compose.ui.Modifier,
 ) = Unit
+
+actual fun androidx.compose.ui.Modifier.guideTimelineMouseDrag(
+    scrollState: androidx.compose.foundation.ScrollState,
+): androidx.compose.ui.Modifier = this

@@ -1,6 +1,6 @@
 # Mawjic build status
 
-## Current verification snapshot (2026-10-28)
+## Current verification snapshot (2026-10-31 — Stage 2 source update)
 
 - **Latest EPG baseline:** the maintainer reports all GitHub Actions jobs passed after correcting the range-test fixture. The maintainer also confirms the 12-hour guide is faster and the single continuous red current-time line looks correct.
 - **Current follow-up, pending hosted CI:** app-coloured Android navigation and audio/subtitle dialogs; 30-minute labels with unlabelled 5-minute ticks; a larger default timeline with user-adjustable zoom; taller EPG rows; current/next subtitles in channel rows. Static checks and a common 5-minute tick test are included in this update. Kotlin/Android compilation and device appearance are not verified until CI/device checks run.
@@ -11,6 +11,19 @@
 - **XMLTV metadata:** `<sub-title>` and `<episode-num>` are preserved separately through Rust parsing, the JSON ABI, and Kotlin models; current EPG cards and programme details display subtitle/episode metadata. Parser regression coverage exists in `CoreIntegrationTest`.
 - **Next targeted UI update:** expand the EPG's rolling horizontal window from six hours to 24 hours. This update adds a pure range helper plus a common regression test and static source-sanity guards.
 - **Verification for this 24-hour timeline update:** the source changes have passed the bundle's static checks and guarded updater tests in a disposable checkout. **Not yet verified:** Gradle/common-test execution on GitHub Actions or visual scrolling, labels, programme placement, and current-time marker behavior in Android/Linux builds. The authoring environment cannot reach GitHub (`Could not resolve host`) or run Gradle/Cargo here, so the latest `main` and Actions run could not be independently fetched in this turn; the updater will refuse any source file whose contents differ from the expected base.
+
+
+### Stage 2 — EPG freshness, guide control and desktop responsiveness (2026-10-31; pending hosted CI)
+
+- Replaced the Guide zoom +/- controls with a snapping slider over the existing supported zoom levels; retained the existing default zoom and the separate Desktop horizontal pan slider.
+- Split next-programme title and subtitle into distinct lines on compact and wide channel rows. Passed both values into the Watch player: Android's in-app OSD and the Linux mpv companion dialog now expose the upcoming title/subtitle alongside current-programme metadata.
+- Added an app-bar manual EPG refresh and configurable in-app XMLTV refresh intervals: Off, 30 minutes, 1, 3, 6 or 12 hours (default 6 hours). This refreshes only the XMLTV guide, not the playlist; it runs while the app is open, prevents overlapping/stale source updates, and commits the new guide only after a successful fetch/parse. Failures retain the last loaded guide and show a generic message that does not echo source URLs or credentials.
+- Desktop settings now update Compose state immediately and persist debounced snapshots on `Dispatchers.IO`. Preferences are written as one batch/flush on Desktop and one `SharedPreferences.Editor.apply()` on Android. TLS reconfiguration only occurs when the persisted TLS policy actually changes; the explicit immediate TLS toggle path remains in place before source loading.
+- Added Desktop Ctrl+1..4 navigation (Live TV, Guide, Favourites, Settings), Ctrl+F search focus, and Ctrl+R refresh/reload behavior.
+- Added common settings round-trip coverage for the refresh interval and source-sanity guards for the new feature contracts. No changes were made to `Playback.desktop.kt`'s MPV discovery/launch implementation; the pre-existing Stage 1 Android Media3 player architecture is retained.
+- **Verification performed:** `bash scripts/source-sanity.sh` (including dependency inventory, localization and repository hygiene); `git diff --check`; source inspection of both actual implementations and the EPG refresh generation guards.
+- **Not verified:** Kotlin/Compose compilation, common/desktop test execution, Android APK/build, Linux distributable/AppImage, GitHub Actions, and interactive testing of desktop shortcuts/settings/Guide zoom, Android OSD/EPG refresh, or scheduled refresh behavior. The pinned Gradle 8.14.6 distribution is not installed locally and the wrapper could not resolve `services.gradle.org` in this environment. Treat hosted CI as the first compile/test authority; do not report Stage 2 as build-passing until Actions passes.
+
 
 The older follow-up sections below record status as it was known when each item was written; this snapshot supersedes any earlier “awaiting CI” wording where the maintainer has since reported a passing build or runtime result.
 
@@ -199,3 +212,14 @@ At the time this historical entry was written, the follow-ups had received stati
 - Added an app-bar source dropdown for quick profile switching, retained the top-bar source manager action, and added a dedicated Manage Sources action under Settings > Playback & Sources.
 - Added Arabic translations and source-sanity regression guards for these UI contracts.
 - **Static verification performed:** `bash scripts/source-sanity.sh` (dependency inventory, localization and repository hygiene) and `git diff --check`. **Not run:** Kotlin compilation, Android APK build, Desktop build, or runtime verification. Compose resource generation and platform dialog layout must be validated by GitHub Actions. Do not run local Gradle or install build dependencies on the maintainer's limited internet.
+
+## Arabic typography, bidi safety, Android player gestures and Desktop timeline navigation (2026-10-31; pending CI)
+
+- Bundled Noto Naskh Arabic UI regular/bold for Arabic and Roboto regular/bold for English as Compose Multiplatform font resources. Added the Noto SIL OFL-1.1 and Roboto Apache-2.0 copyright/licence notices under `licenses/` and recorded them in `THIRD_PARTY.md`. The app selects its Material typography family from the current UI language.
+- Added a Unicode First Strong Isolate / Pop Directional Isolate helper for source-provided display text. Applied it to channel names/groups, programme titles/subtitles/episode metadata, source names and URLs, schedule/programme details, statuses and Android player OSD labels without changing stored/parser values. Source URL editors explicitly retain LTR text direction.
+- Made channel-name text itself an explicit playback target in compact and wide channel rows, in addition to the existing channel logo target. Programme information continues to open its channel schedule.
+- The existing Mawjic Linux mpv discovery/launch path is intentionally unchanged; the NixOS mpv issue discussed separately belongs to the Mawjac reference project.
+- Added Android player vertical gestures on the existing hidden-OSD touch surface: left half adjusts the player-window brightness, right half adjusts media volume. A transient HUD displays the current level. The gesture surface only exists while the OSD is hidden, leaving the visible Media3 controls interactive. Original window brightness is restored when the player closes.
+- Fixed the guide's timeline coordinate system to LTR independently of the app language. Added Desktop primary-mouse click-and-drag panning to the synchronized timeline header and channel tracks, and a visible Desktop horizontal position slider with one-hour nudge buttons. Android keeps its existing touch scrolling and does not enable mouse-specific handling.
+- Added common regression coverage for Unicode bidi isolation and static source-sanity guards for the new font resources/notices, channel-name playback target, Android gesture wiring, and Desktop timeline controls.
+- **Verification performed:** `bash scripts/source-sanity.sh`, `git diff --check`, font SHA-256 and family/style checks, binary-safe patch application in a disposable checkout at the exact base, exact resulting Git tree match, Git bundle verification, guarded apply-script end-to-end fast-forward test, and source/handoff ZIP integrity tests. **Not run:** Kotlin compilation, Compose resource generation, Android APK build, Linux Desktop build, Android player runtime gestures, or Desktop pointer interaction. GitHub Actions is the first compilation/test authority; manual Android and Linux interaction checks remain required. No local Gradle, Android SDK, Rust, or font downloads were run.

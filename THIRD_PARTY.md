@@ -19,3 +19,12 @@ The versions below are declared by the build. This is a dependency inventory, no
 | mpv | host distribution package | Linux playback process (not bundled) | [mpv](https://github.com/mpv-player/mpv) |
 
 Mawjic's own source is MIT licensed. The app does not bundle mpv or redistribute media/EPG/artwork. Build-produced binaries will bundle the dependency versions resolved by Gradle; retain their copyright and licence obligations when redistributing them.
+
+## Bundled UI fonts
+
+| Font | Included files | Licence | Notice |
+|---|---|---|---|
+| Noto Naskh Arabic UI | `noto_naskh_arabic_ui_regular.ttf`, `noto_naskh_arabic_ui_bold.ttf` | SIL Open Font License 1.1 | `licenses/Noto-Naskh-Arabic-UI-copyright.txt` |
+| Roboto | `roboto_regular.ttf`, `roboto_bold.ttf` | Apache License 2.0 | `licenses/Roboto-copyright.txt` and `licenses/Apache-2.0.txt` |
+
+These regular/bold font files are bundled as Compose Multiplatform resources and selected according to the app language: Noto Naskh Arabic UI for Arabic, Roboto for English. Preserve the accompanying copyright and licence notices in redistributions.

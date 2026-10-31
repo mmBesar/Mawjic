@@ -24,6 +24,12 @@ import java.util.concurrent.TimeUnit
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.ScrollState
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.isPrimaryPressed
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import kotlin.math.roundToInt
@@ -60,11 +66,25 @@ private object DesktopInsecureTlsSupport {
 }
 
 actual object Platform {
+    actual val isDesktop: Boolean = true
     private val preferences = Preferences.userNodeForPackage(Platform::class.java)
     actual fun getPreference(key: String, defaultValue: String): String = preferences.get(key, defaultValue)
     actual fun setPreference(key: String, value: String) {
-        preferences.put(key, value); preferences.flush()
-        if (key == "allowInsecureTls") configureTlsPolicy()
+        synchronized(preferences) {
+            preferences.put(key, value)
+            preferences.flush()
+            if (key == "allowInsecureTls") configureTlsPolicy()
+        }
+    }
+    actual fun setPreferences(values: Map<String, String>) {
+        synchronized(preferences) {
+            val tlsChanged = values["allowInsecureTls"]?.let {
+                preferences.get("allowInsecureTls", "false") != it
+            } ?: false
+            values.forEach { (key, value) -> preferences.put(key, value) }
+            preferences.flush()
+            if (tlsChanged) configureTlsPolicy()
+        }
     }
     actual fun configureTlsPolicy() {
         val context = if (getPreference("allowInsecureTls", "false").toBoolean()) DesktopInsecureTlsSupport.insecureContext else DesktopInsecureTlsSupport.systemContext
@@ -219,4 +239,36 @@ actual fun GuideVerticalScrollbar(
         modifier = modifier,
         adapter = androidx.compose.foundation.rememberScrollbarAdapter(scrollState = state),
     )
+}
+
+actual fun Modifier.guideTimelineMouseDrag(
+    scrollState: ScrollState,
+): Modifier = pointerInput(scrollState) {
+    val dragSlop = viewConfiguration.touchSlop
+    awaitPointerEventScope {
+        while (true) {
+            val downEvent = awaitPointerEvent(PointerEventPass.Initial)
+            val down = downEvent.changes.firstOrNull {
+                it.pressed && it.type == PointerType.Mouse && downEvent.buttons.isPrimaryPressed
+            } ?: continue
+            val start = down.position
+            var lastX = start.x
+            var draggingTimeline = false
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                if (!change.pressed) break
+                val dx = change.position.x - start.x
+                val dy = change.position.y - start.y
+                if (!draggingTimeline && kotlin.math.abs(dx) > dragSlop && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.15f) {
+                    draggingTimeline = true
+                }
+                if (draggingTimeline) {
+                    change.consume()
+                    scrollState.dispatchRawDelta(lastX - change.position.x)
+                }
+                lastX = change.position.x
+            }
+        }
+    }
 }

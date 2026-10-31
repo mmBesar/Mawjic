@@ -2,10 +2,21 @@ package app.mawjic.tv
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import org.jetbrains.compose.resources.Font
+import app.mawjic.tv.generated.resources.Res
+import app.mawjic.tv.generated.resources.noto_naskh_arabic_ui_bold
+import app.mawjic.tv.generated.resources.noto_naskh_arabic_ui_regular
+import app.mawjic.tv.generated.resources.roboto_bold
+import app.mawjic.tv.generated.resources.roboto_regular
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.random.Random
@@ -18,6 +29,44 @@ val flavours = listOf("Latte", "Frappé", "Macchiato", "Mocha")
 val accents = listOf("Rosewater", "Flamingo", "Pink", "Mauve", "Red", "Maroon", "Peach", "Yellow", "Green", "Teal", "Sky", "Sapphire", "Blue", "Lavender")
 val appearanceModes = listOf("System", "Light", "Dark", "AMOLED Black")
 val accentSources = listOf("Catppuccin", "Android Dynamic", "Linux Native System Colours")
+
+
+/** Use bundled script-appropriate UI fonts consistently on Android and Linux. */
+@Composable
+internal fun appTypography(language: String): Typography {
+    val family = if (language == "Arabic") {
+        FontFamily(
+            Font(Res.font.noto_naskh_arabic_ui_regular, FontWeight.Normal),
+            Font(Res.font.noto_naskh_arabic_ui_bold, FontWeight.Bold),
+        )
+    } else {
+        FontFamily(
+            Font(Res.font.roboto_regular, FontWeight.Normal),
+            Font(Res.font.roboto_bold, FontWeight.Bold),
+        )
+    }
+    return remember(language) {
+        val base = Typography()
+        fun TextStyle.withAppFont() = copy(fontFamily = family)
+        base.copy(
+            displayLarge = base.displayLarge.withAppFont(),
+            displayMedium = base.displayMedium.withAppFont(),
+            displaySmall = base.displaySmall.withAppFont(),
+            headlineLarge = base.headlineLarge.withAppFont(),
+            headlineMedium = base.headlineMedium.withAppFont(),
+            headlineSmall = base.headlineSmall.withAppFont(),
+            titleLarge = base.titleLarge.withAppFont(),
+            titleMedium = base.titleMedium.withAppFont(),
+            titleSmall = base.titleSmall.withAppFont(),
+            bodyLarge = base.bodyLarge.withAppFont(),
+            bodyMedium = base.bodyMedium.withAppFont(),
+            bodySmall = base.bodySmall.withAppFont(),
+            labelLarge = base.labelLarge.withAppFont(),
+            labelMedium = base.labelMedium.withAppFont(),
+            labelSmall = base.labelSmall.withAppFont(),
+        )
+    }
+}
 
 private val sourceProfilesJson = Json { ignoreUnknownKeys = true }
 
@@ -74,23 +123,30 @@ data class AppSettings(
     val favourites: Set<String> = emptySet(),
     val sources: List<SourceProfile> = emptyList(),
     val activeSourceId: String? = null,
+    /** 0 disables periodic refresh; otherwise interval in minutes. */
+    val epgRefreshIntervalMinutes: Int = 360,
 ) {
     fun save() {
-        Platform.setPreference("flavour", flavour)
-        Platform.setPreference("accent", accent)
-        Platform.setPreference("appearance", appearance)
-        Platform.setPreference("accentSource", accentSource)
-        Platform.setPreference("language", language)
-        Platform.setPreference("allowInsecureTls", allowInsecureTls.toString())
-        Platform.setPreference("externalPlayer", externalPlayer)
-        Platform.setPreference("playlistSource", playlistSource)
-        Platform.setPreference("guideSource", guideSource)
         val savedSources = sources.map { source ->
             if (source.id == activeSourceId) source.copy(allowInsecureTls = allowInsecureTls) else source
         }
-        Platform.setPreference("sourcesJson", sourceProfilesJson.encodeToString(savedSources))
-        Platform.setPreference("activeSourceId", activeSourceId.orEmpty())
-        Platform.setPreference("favourites", favourites.joinToString("\n"))
+        Platform.setPreferences(
+            mapOf(
+                "flavour" to flavour,
+                "accent" to accent,
+                "appearance" to appearance,
+                "accentSource" to accentSource,
+                "language" to language,
+                "allowInsecureTls" to allowInsecureTls.toString(),
+                "externalPlayer" to externalPlayer,
+                "playlistSource" to playlistSource,
+                "guideSource" to guideSource,
+                "sourcesJson" to sourceProfilesJson.encodeToString(savedSources),
+                "activeSourceId" to activeSourceId.orEmpty(),
+                "favourites" to favourites.joinToString("\n"),
+                "epgRefreshIntervalMinutes" to epgRefreshIntervalMinutes.toString(),
+            ),
+        )
     }
     companion object {
         fun load(): AppSettings {
@@ -136,6 +192,8 @@ data class AppSettings(
                 favourites = favs,
                 sources = restoredSources,
                 activeSourceId = activeSource?.id,
+                epgRefreshIntervalMinutes = Platform.getPreference("epgRefreshIntervalMinutes", "360")
+                    .toIntOrNull()?.takeIf { it in setOf(0, 30, 60, 180, 360, 720) } ?: 360,
             )
         }
     }

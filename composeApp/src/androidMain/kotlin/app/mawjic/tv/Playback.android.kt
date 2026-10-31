@@ -4,6 +4,9 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ContextWrapper
+import android.media.AudioManager
+import android.provider.Settings
+import android.view.WindowManager
 import android.content.pm.ActivityInfo
 import android.content.Intent
 import android.net.Uri
@@ -11,8 +14,9 @@ import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
@@ -42,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -98,6 +104,8 @@ actual fun PlaybackPane(
     channelLogo: String,
     currentProgrammeTitle: String,
     currentProgrammeSubtitle: String,
+    nextProgrammeTitle: String,
+    nextProgrammeSubtitle: String,
     previousChannel: Channel?,
     nextChannel: Channel?,
     onChannelSelected: (Channel) -> Unit,
@@ -156,7 +164,7 @@ actual fun PlaybackPane(
         AlertDialog(
             onDismissRequest = onClose,
             title = { Text(tr("Open in external player")) },
-            text = { Text(if (externalLaunchError.isBlank()) tr("Opening channel in preferred external player…") else externalLaunchError) },
+            text = { Text(if (externalLaunchError.isBlank()) tr("Opening channel in preferred external player…") else bidiIsolate(externalLaunchError)) },
             confirmButton = { Button(onClick = { useInAppFallback = true }) { Text(tr("Use in-app player")) } },
             dismissButton = { TextButton(onClick = onClose) { Text(tr("Cancel")) } },
         )
@@ -173,7 +181,7 @@ actual fun PlaybackPane(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Android Media3 does not natively handle the '$scheme' scheme in this player. Choose an installed external player.")
-                    if (lastError.isNotBlank()) Text(lastError, color = MaterialTheme.colorScheme.error)
+                    if (lastError.isNotBlank()) Text(bidiIsolate(lastError), color = MaterialTheme.colorScheme.error)
                 }
             },
             confirmButton = {
@@ -218,10 +226,21 @@ actual fun PlaybackPane(
     }
     var playbackIsPlaying by remember(url) { mutableStateOf(false) }
     var osdRevision by remember(url) { mutableIntStateOf(0) }
+    var gestureHudLabel by remember(url) { mutableStateOf("") }
+    var gestureHudValue by remember(url) { mutableFloatStateOf(0f) }
+    var gestureHudRevision by remember(url) { mutableIntStateOf(0) }
+    val brightnessLabel = tr("Brightness")
+    val volumeLabel = tr("Volume")
+    val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val playerViewRef = remember(player) { AtomicReference<PlayerView?>(null) }
     fun revealOsd() {
         showOsd = true
         osdRevision++
+    }
+    fun updateGestureHud(label: String, value: Float) {
+        gestureHudLabel = label
+        gestureHudValue = value.coerceIn(0f, 1f)
+        gestureHudRevision++
     }
 
     DisposableEffect(player, url) {
@@ -297,6 +316,14 @@ actual fun PlaybackPane(
         }
     }
 
+    LaunchedEffect(gestureHudRevision) {
+        val revision = gestureHudRevision
+        if (gestureHudLabel.isNotBlank()) {
+            delay(900)
+            if (gestureHudRevision == revision) gestureHudLabel = ""
+        }
+    }
+
     BackHandler(onBack = {
         if (isFullscreen) {
             isFullscreen = false
@@ -309,6 +336,15 @@ actual fun PlaybackPane(
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val dialogView = LocalView.current
         val dialogWindow = (dialogView.parent as? DialogWindowProvider)?.window
+        val originalWindowBrightness = remember(dialogWindow) {
+            dialogWindow?.attributes?.screenBrightness ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        }
+        val initialGestureBrightness = remember(dialogWindow) {
+            originalWindowBrightness.takeIf { it >= 0f } ?: runCatching {
+                Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f
+            }.getOrDefault(0.5f)
+        }
+        var gestureBrightness by remember(dialogWindow) { mutableFloatStateOf(initialGestureBrightness.coerceIn(0.05f, 1f)) }
         LaunchedEffect(dialogWindow, isFullscreen) {
             dialogWindow?.let { window ->
                 val bars = WindowInsetsControllerCompat(window, window.decorView)
@@ -321,6 +357,8 @@ actual fun PlaybackPane(
             onDispose {
                 dialogWindow?.let { window ->
                     WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
+                    // The brightness gesture is scoped to this player window only.
+                    window.attributes = window.attributes.apply { screenBrightness = originalWindowBrightness }
                 }
             }
         }
@@ -351,18 +389,81 @@ actual fun PlaybackPane(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            // The transparent surface restores Mawjic's controls with a tap once the
-            // OSD has hidden; it leaves the native Media3 controller available while shown.
+            // When the OSD is hidden this transparent surface handles tap-to-reveal
+            // and vertical brightness/volume gestures. Media3's controls remain fully
+            // interactive whenever the OSD/controller is visible.
             if (!showOsd) {
                 Box(
-                    Modifier.fillMaxSize().clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) {
-                        revealOsd()
-                        playerViewRef.get()?.showController()
+                    Modifier.fillMaxSize().pointerInput(dialogWindow) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val startX = down.position.x
+                            val startY = down.position.y
+                            val startBrightness = gestureBrightness
+                            val startVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                            var isDragging = false
+                            var movedBeyondSlop = false
+                            var finished = false
+                            do {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                val deltaX = change.position.x - startX
+                                val deltaY = change.position.y - startY
+                                if (kotlin.math.abs(deltaX) > viewConfiguration.touchSlop || kotlin.math.abs(deltaY) > viewConfiguration.touchSlop) {
+                                    movedBeyondSlop = true
+                                }
+                                if (!isDragging && kotlin.math.abs(deltaY) > viewConfiguration.touchSlop &&
+                                    kotlin.math.abs(deltaY) > kotlin.math.abs(deltaX) * 1.15f
+                                ) {
+                                    isDragging = true
+                                }
+                                if (isDragging) {
+                                    change.consume()
+                                    // A full-height drag spans about 135% of the available range.
+                                    val adjustment = -deltaY / size.height.coerceAtLeast(1).toFloat() * 1.35f
+                                    if (startX < size.width / 2f) {
+                                        val adjusted = (startBrightness + adjustment).coerceIn(0.05f, 1f)
+                                        gestureBrightness = adjusted
+                                        dialogWindow?.let { window ->
+                                            window.attributes = window.attributes.apply { screenBrightness = adjusted }
+                                        }
+                                        updateGestureHud(brightnessLabel, adjusted)
+                                    } else {
+                                        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                                        val adjusted = (startVolume + (adjustment * maxVolume).toInt()).coerceIn(0, maxVolume)
+                                        runCatching { audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, adjusted, 0) }
+                                        updateGestureHud(volumeLabel, adjusted.toFloat() / maxVolume.toFloat())
+                                    }
+                                }
+                                finished = !change.pressed
+                            } while (!finished)
+                            if (!movedBeyondSlop) {
+                                revealOsd()
+                                playerViewRef.get()?.showController()
+                            }
+                        }
                     },
                 )
+            }
+
+            if (gestureHudLabel.isNotBlank()) {
+                val isBrightness = gestureHudLabel == brightnessLabel
+                Column(
+                    Modifier.align(if (isBrightness) Alignment.CenterStart else Alignment.CenterEnd)
+                        .padding(horizontal = 22.dp, vertical = 18.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.Black.copy(alpha = .78f))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    Text(if (isBrightness) "☼" else "♫", color = Color.White, style = MaterialTheme.typography.headlineSmall)
+                    Text(bidiIsolate(gestureHudLabel), color = Color.White, style = MaterialTheme.typography.labelMedium)
+                    Box(Modifier.width(104.dp).height(5.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = .22f))) {
+                        Box(Modifier.fillMaxWidth(gestureHudValue).fillMaxSize().background(Color.White))
+                    }
+                    Text("${(gestureHudValue * 100).toInt()}%", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                }
             }
 
             if (showOsd) {
@@ -387,22 +488,28 @@ actual fun PlaybackPane(
                             if (channelLogo.isNotBlank() && !channelLogoFailed) {
                                 AsyncImage(
                                     model = channelLogo,
-                                    contentDescription = "$channelName logo",
+                                    contentDescription = bidiIsolate("$channelName logo"),
                                     modifier = Modifier.fillMaxSize().padding(4.dp),
                                     contentScale = ContentScale.Fit,
                                     onState = { state -> if (state is AsyncImagePainter.State.Error) channelLogoFailed = true },
                                 )
                             } else {
-                                Text(channelName.take(1).ifBlank { "TV" }, color = Color.White, fontWeight = FontWeight.Bold)
+                                Text(bidiIsolate(channelName.take(1).ifBlank { "TV" }), color = Color.White, fontWeight = FontWeight.Bold)
                             }
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                            Text(channelName, color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(bidiIsolate(channelName), color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (currentProgrammeTitle.isNotBlank()) {
-                                Text(currentProgrammeTitle, color = Color.White.copy(alpha = .92f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(bidiIsolate(currentProgrammeTitle), color = Color.White.copy(alpha = .92f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             if (currentProgrammeSubtitle.isNotBlank()) {
-                                Text(currentProgrammeSubtitle, color = Color.White.copy(alpha = .76f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(bidiIsolate(currentProgrammeSubtitle), color = Color.White.copy(alpha = .76f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            if (nextProgrammeTitle.isNotBlank()) {
+                                Text("${tr("Next · ")}${bidiIsolate(nextProgrammeTitle)}", color = Color.White.copy(alpha = .82f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            if (nextProgrammeSubtitle.isNotBlank()) {
+                                Text(bidiIsolate(nextProgrammeSubtitle), color = Color.White.copy(alpha = .66f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                         TextButton(onClick = { isFullscreen = !isFullscreen; revealOsd() }) {
@@ -421,7 +528,7 @@ actual fun PlaybackPane(
                         TextButton(onClick = { revealOsd(); showSubtitleTracks = true }) { Text("CC", color = Color.White) }
                     }
                     if (lastError.isNotBlank()) {
-                        Text("Playback error: $lastError · retry $retryCount/3", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                        Text(bidiIsolate("Playback error: $lastError · retry $retryCount/3"), color = Color.White, style = MaterialTheme.typography.bodySmall)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             if (preferredExternalPlayer != "In-app") {
                                 OutlinedButton(onClick = { selectedExternalPlayer = preferredExternalPlayer; useInAppFallback = false; externalLaunchError = "" }) {
@@ -492,7 +599,7 @@ private fun TrackSelectionDialog(
     val scheme = MaterialTheme.colorScheme
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
+        title = { Text(bidiIsolate(title)) },
         text = {
             Column(
                 Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
@@ -557,7 +664,7 @@ private fun TrackSelectionDialog(
                             onClick = null,
                             colors = RadioButtonDefaults.colors(selectedColor = scheme.primary),
                         )
-                        Text(option.label, color = scheme.onSurface)
+                        Text(bidiIsolate(option.label), color = scheme.onSurface)
                     }
                 }
                 if (options.isEmpty()) {

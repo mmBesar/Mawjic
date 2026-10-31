@@ -49,6 +49,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -68,12 +69,16 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusable
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -94,6 +99,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 
 private enum class Page(val label: String, val glyph: String) {
     LIVE("Live TV", "◉"), GUIDE("TV Guide", "▦"), FAVOURITES("Favourites", "☆"), SETTINGS("Settings", "⚙"),
@@ -112,6 +122,13 @@ fun MawjicApp() {
             .build()
     }
     var settings by remember { mutableStateOf(AppSettings.load()) }
+    // Persist complete snapshots away from the Compose UI thread. Debouncing prevents
+    // rapid theme taps from triggering a Preferences.flush() for every individual field.
+    LaunchedEffect(settings) {
+        val snapshot = settings
+        delay(180)
+        withContext(Dispatchers.IO) { snapshot.save() }
+    }
     var systemTick by remember { mutableIntStateOf(0) }
     LaunchedEffect(settings.appearance, settings.accentSource) {
         while (true) { delay(4_000); systemTick++ }
@@ -122,7 +139,7 @@ fun MawjicApp() {
         "Dark", "AMOLED Black" -> false
         else -> !androidx.compose.foundation.isSystemInDarkTheme()
     }
-    MaterialTheme(colorScheme = colorScheme) {
+    MaterialTheme(colorScheme = colorScheme, typography = appTypography(settings.language)) {
         CompositionLocalProvider(
             LocalAppLanguage provides settings.language,
             LocalLayoutDirection provides (if (settings.language == "Arabic") LayoutDirection.Rtl else LayoutDirection.Ltr),
@@ -132,7 +149,12 @@ fun MawjicApp() {
                 val synchronizedSources = next.sources.map { source ->
                     if (source.id == next.activeSourceId) source.copy(allowInsecureTls = next.allowInsecureTls) else source
                 }
-                settings = next.copy(sources = synchronizedSources).also(AppSettings::save)
+                val updated = next.copy(sources = synchronizedSources)
+                // Apply TLS changes immediately before a source switch can start reading.
+                if (settings.allowInsecureTls != updated.allowInsecureTls) {
+                    Platform.setPreference("allowInsecureTls", updated.allowInsecureTls.toString())
+                }
+                settings = updated
             })
         }
     }
@@ -142,6 +164,13 @@ fun MawjicApp() {
 @Composable
 private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit) {
     var page by remember { mutableStateOf(Page.LIVE) }
+    val appFocusRequester = remember { FocusRequester() }
+    val searchFocusRequester = remember { FocusRequester() }
+    var searchFocusRequest by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { if (Platform.isDesktop) appFocusRequester.requestFocus() }
+    LaunchedEffect(searchFocusRequest, page) {
+        if (searchFocusRequest > 0 && page == Page.LIVE && Platform.isDesktop) searchFocusRequester.requestFocus()
+    }
     var channels by remember { mutableStateOf<List<Channel>>(emptyList()) }
     var guide by remember { mutableStateOf(GuideData(emptyMap(), emptyMap(), emptyList())) }
     var query by remember { mutableStateOf("") }
@@ -156,6 +185,9 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
     var sourceReloadVersion by remember { mutableIntStateOf(0) }
     var sourceLoadGeneration by remember { mutableIntStateOf(0) }
     var loadedSourceIdentity by remember { mutableStateOf("") }
+    var guideRefreshRequest by remember { mutableIntStateOf(0) }
+    var guideRefreshGeneration by remember { mutableIntStateOf(0) }
+    var refreshingGuide by remember { mutableStateOf(false) }
     var status by remember(settings.language) { mutableStateOf(if (settings.language == "Arabic") "أضف قائمة تشغيل M3U لبدء المشاهدة." else "Add an M3U playlist to start watching.") }
     val groups = remember(channels) { listOf("All channels") + channels.map(Channel::group).filter(String::isNotBlank).distinct().sorted() }
     val activeSource = settings.sources.firstOrNull { it.id == settings.activeSourceId }
@@ -237,6 +269,9 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
 
     LaunchedEffect(settings.activeSourceId, settings.playlistSource, settings.guideSource, sourceReloadVersion) {
         val generation = ++sourceLoadGeneration
+        // Invalidate any in-flight guide-only request before the newly selected source loads.
+        guideRefreshGeneration++
+        refreshingGuide = false
         val sourceIdentity = listOf(
             settings.activeSourceId.orEmpty(),
             settings.playlistSource,
@@ -258,6 +293,59 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
         }
     }
 
+    suspend fun refreshGuideOnly() {
+        val source = settings.guideSource.trim()
+        if (source.isBlank() || refreshingGuide || loading || channels.isEmpty()) return
+        val requestedSourceId = settings.activeSourceId
+        val requestedLoadGeneration = sourceLoadGeneration
+        val requestGeneration = ++guideRefreshGeneration
+        refreshingGuide = true
+        try {
+            val guideText = Platform.readText(source)
+            val refreshedGuide = withContext(Dispatchers.Default) {
+                PlatformBridge.parseGuideJson(Platform.parseXmltv(guideText))
+            }
+            val stillCurrent = requestGeneration == guideRefreshGeneration &&
+                requestedLoadGeneration == sourceLoadGeneration &&
+                requestedSourceId == settings.activeSourceId && source == settings.guideSource.trim()
+            if (stillCurrent) {
+                // Replace the current data only after a complete successful fetch and parse.
+                guide = refreshedGuide
+                status = if (settings.language == "Arabic") {
+                    "تم تحديث دليل البرامج · ${refreshedGuide.programmes.size} برنامجًا."
+                } else {
+                    "Programme guide refreshed · ${refreshedGuide.programmes.size} programmes."
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            if (requestGeneration == guideRefreshGeneration && requestedLoadGeneration == sourceLoadGeneration) {
+                status = if (settings.language == "Arabic") {
+                    "فشل تحديث الدليل · تم الاحتفاظ بالدليل السابق. تحقق من المصدر والاتصال."
+                } else {
+                    "Guide refresh failed · previous guide retained. Check the source and connection."
+                }
+            }
+        } finally {
+            if (requestGeneration == guideRefreshGeneration) refreshingGuide = false
+        }
+    }
+
+    LaunchedEffect(guideRefreshRequest) {
+        if (guideRefreshRequest > 0) refreshGuideOnly()
+    }
+    // This timer runs only while Mawjic is open; no background-service promise is made.
+    LaunchedEffect(settings.activeSourceId, settings.guideSource, settings.epgRefreshIntervalMinutes, channels.isNotEmpty()) {
+        val intervalMinutes = settings.epgRefreshIntervalMinutes
+        if (intervalMinutes > 0 && settings.guideSource.isNotBlank() && channels.isNotEmpty()) {
+            while (true) {
+                delay(intervalMinutes * 60_000L)
+                refreshGuideOnly()
+            }
+        }
+    }
+
     val now = clockEpoch
     val hour = formatTime(now).substringBefore(":").toIntOrNull() ?: 12
     val liveGreeting = when {
@@ -270,7 +358,26 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
     fun current(channel: Channel): Programme? = epgIndex.current(channel, now)
     fun next(channel: Channel): Programme? = epgIndex.next(channel, now)
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val rootModifier = Modifier.fillMaxSize().then(
+        if (Platform.isDesktop) Modifier.focusRequester(appFocusRequester).onPreviewKeyEvent { event ->
+            if (event.type != KeyEventType.KeyDown || !event.isCtrlPressed) {
+                false
+            } else when (event.key) {
+                Key.One -> { page = Page.LIVE; true }
+                Key.Two -> { page = Page.GUIDE; true }
+                Key.Three -> { page = Page.FAVOURITES; true }
+                Key.Four -> { page = Page.SETTINGS; true }
+                Key.F -> { page = Page.LIVE; searchExpanded = true; searchFocusRequest++; true }
+                Key.R -> {
+                    if (settings.guideSource.isNotBlank()) guideRefreshRequest++
+                    else if (settings.playlistSource.isNotBlank()) sourceReloadVersion++
+                    true
+                }
+                else -> false
+            }
+        }.focusable() else Modifier,
+    )
+    BoxWithConstraints(rootModifier) {
         val compactLayout = maxWidth < 680.dp
         Scaffold(
         topBar = {
@@ -286,6 +393,16 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                 },
                 actions = {
                     if (page != Page.SETTINGS) {
+                        if (settings.guideSource.isNotBlank()) {
+                            IconButton(
+                                onClick = { guideRefreshRequest++ },
+                                enabled = !refreshingGuide && !loading,
+                                modifier = Modifier.size(48.dp),
+                            ) {
+                                if (refreshingGuide) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                else Text("↻", fontSize = 23.sp)
+                            }
+                        }
                         IconButton(
                             onClick = { searchExpanded = !searchExpanded; if (!searchExpanded) query = "" },
                             modifier = Modifier.size(48.dp),
@@ -297,7 +414,7 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                             modifier = Modifier.heightIn(min = 48.dp),
                         ) {
                             Text(
-                                activeSource?.name ?: tr("Select source"),
+                                activeSource?.name?.let(::bidiIsolate) ?: tr("Select source"),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.widthIn(max = if (compactLayout) 112.dp else 190.dp),
@@ -310,7 +427,7 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                         ) {
                             settings.sources.forEach { source ->
                                 DropdownMenuItem(
-                                    text = { Text((if (source.id == settings.activeSourceId) "✓  " else "") + source.name) },
+                                    text = { Text((if (source.id == settings.activeSourceId) "✓  " else "") + bidiIsolate(source.name)) },
                                     onClick = { activateSource(source.id) },
                                 )
                             }
@@ -403,7 +520,7 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                         }
                         if (!compactLayout || searchExpanded) {
                             OutlinedTextField(
-                                value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(),
+                                value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().focusRequester(searchFocusRequester),
                                 label = { Text(tr("Search channels or programmes")) }, singleLine = true,
                                 leadingIcon = { Text("⌕", style = MaterialTheme.typography.titleLarge) },
                             )
@@ -441,7 +558,7 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                             }
                             if (status.isNotBlank()) {
                                 val guideFailed = status.contains("EPG failed", ignoreCase = true) || status.contains("تعذّر تحميل دليل البرامج")
-                                Text(status, style = MaterialTheme.typography.bodySmall, color = if (guideFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = .62f), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                Text(bidiIsolate(status), style = MaterialTheme.typography.bodySmall, color = if (guideFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = .62f), maxLines = 3, overflow = TextOverflow.Ellipsis)
                                 Spacer(Modifier.height(6.dp))
                             }
                             Text(if (settings.language == "Arabic") "${filtered.size} قناة" else "${filtered.size} CHANNELS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .60f), fontWeight = FontWeight.SemiBold)
@@ -466,7 +583,7 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
                                 }
                             }
                         }
-                        if (status.isNotBlank() && channels.isEmpty()) Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
+                        if (status.isNotBlank() && channels.isEmpty()) Text(bidiIsolate(status), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
                         }
                     }
                 }
@@ -544,6 +661,8 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
             channelLogo = ArtworkResolver.resolve(channel, guide.channelLogos, ArtworkResolver.mappings(), guide.channelNames),
             currentProgrammeTitle = currentProgramme?.title.orEmpty(),
             currentProgrammeSubtitle = currentProgramme?.subtitle.orEmpty(),
+            nextProgrammeTitle = next(channel)?.title.orEmpty(),
+            nextProgrammeSubtitle = next(channel)?.subtitle.orEmpty(),
             previousChannel = channels.getOrNull(channelIndex - 1),
             nextChannel = channels.getOrNull(channelIndex + 1),
             onChannelSelected = { selectedChannel = it },
@@ -610,14 +729,19 @@ private fun GuideTimeline(
     val markerColor = Color(0xFFFF536D)
     Column(modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().height(36.dp).padding(horizontal = 4.dp),
+            Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.End,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(tr("Zoom"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
-            TextButton(onClick = { zoomStep = (zoomStep - 1).coerceAtLeast(0) }, enabled = zoomStep > 0) { Text("−") }
-            Text("${(zoom * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.width(42.dp))
-            TextButton(onClick = { zoomStep = (zoomStep + 1).coerceAtMost(zoomLevels.lastIndex) }, enabled = zoomStep < zoomLevels.lastIndex) { Text("+") }
+            Slider(
+                value = zoomStep.toFloat(),
+                onValueChange = { zoomStep = it.roundToInt().coerceIn(0, zoomLevels.lastIndex) },
+                valueRange = 0f..zoomLevels.lastIndex.toFloat(),
+                steps = zoomLevels.size - 2,
+                modifier = Modifier.weight(1f),
+            )
+            Text("${(zoom * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.width(44.dp))
         }
         Column(
             Modifier.weight(1f).fillMaxWidth().drawWithContent {
@@ -639,9 +763,10 @@ private fun GuideTimeline(
                 }
             },
         ) {
-        Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(tr("CHANNEL"), Modifier.width(channelColumnWidth).padding(start = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
-            Box(Modifier.weight(1f).horizontalScroll(scroll)) {
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(tr("CHANNEL"), Modifier.width(channelColumnWidth).padding(start = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
+                Box(Modifier.weight(1f).guideTimelineMouseDrag(scroll).horizontalScroll(scroll)) {
                 Box(Modifier.width(timelineWidth).fillMaxHeight()) {
                     val tickColor = MaterialTheme.colorScheme.outline.copy(alpha = .72f)
                     androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
@@ -671,6 +796,7 @@ private fun GuideTimeline(
                             Text(formatTime(clockTicks[index * 6]), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .82f), maxLines = 1)
                         }
                     }
+                }
                 }
             }
         }
@@ -706,7 +832,8 @@ private fun GuideTimeline(
                             }
                         }
                     }
-                    Row(Modifier.fillMaxWidth().height(98.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                        Row(Modifier.fillMaxWidth().height(98.dp), verticalAlignment = Alignment.CenterVertically) {
                         Row(
                             Modifier.width(channelColumnWidth).fillMaxHeight().clip(RoundedCornerShape(10.dp))
                                 .background(MaterialTheme.colorScheme.surface).clickable { onChannelSelected(channel) }
@@ -722,7 +849,7 @@ private fun GuideTimeline(
                                 ChannelLogo(channel.name, logo, Modifier.fillMaxSize().padding(3.dp), showNameFallback = true)
                             }
                         }
-                        Box(Modifier.weight(1f).fillMaxHeight().clickable { onChannelGuideSelected(channel) }.horizontalScroll(scroll)) {
+                        Box(Modifier.weight(1f).fillMaxHeight().clickable { onChannelGuideSelected(channel) }.guideTimelineMouseDrag(scroll).horizontalScroll(scroll)) {
                             Box(Modifier.width(timelineWidth).fillMaxHeight()) {
                                 val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = .18f)
                                 androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
@@ -763,15 +890,16 @@ private fun GuideTimeline(
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = if (programme.start <= nowEpoch && programme.end > nowEpoch) .28f else .12f)),
                                     ) {
                                         Column(Modifier.fillMaxSize().padding(horizontal = 7.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                            Text(programme.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                            Text(bidiIsolate(programme.title), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                                             val episodeLine = listOf(programme.subtitle, programme.episodeNumber)
                                                 .filter(String::isNotBlank).distinct().joinToString(" · ")
-                                            if (episodeLine.isNotBlank() && width.value >= 42f) Text(episodeLine, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .85f))
-                                            if (width.value >= 90f) Text("${formatTime(programme.start)}–${formatTime(programme.end)}", maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f))
+                                            if (episodeLine.isNotBlank() && width.value >= 42f) Text(bidiIsolate(episodeLine), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .85f))
+                                            if (width.value >= 90f) Text(bidiIsolate("${formatTime(programme.start)}–${formatTime(programme.end)}"), maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f))
                                         }
                                     }
                                 }
                             }
+                        }
                         }
                     }
                 }
@@ -780,6 +908,34 @@ private fun GuideTimeline(
                     state = guideListState,
                     modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(8.dp),
                 )
+            }
+            if (Platform.isDesktop) {
+                val maxScroll = scroll.maxValue.coerceAtLeast(1).toFloat()
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                Row(
+                    Modifier.fillMaxWidth().height(46.dp).padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    TextButton(
+                        onClick = { scroll.dispatchRawDelta(-hourWidthPx) },
+                        enabled = scroll.value > 0,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    ) { Text("‹", style = MaterialTheme.typography.titleLarge) }
+                    Slider(
+                        value = scroll.value.toFloat().coerceIn(0f, maxScroll),
+                        onValueChange = { target -> scroll.dispatchRawDelta(target - scroll.value.toFloat()) },
+                        valueRange = 0f..maxScroll,
+                        modifier = Modifier.weight(1f),
+                        enabled = scroll.maxValue > 0,
+                    )
+                    TextButton(
+                        onClick = { scroll.dispatchRawDelta(hourWidthPx) },
+                        enabled = scroll.value < scroll.maxValue,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    ) { Text("›", style = MaterialTheme.typography.titleLarge) }
+                }
+                }
             }
         }
         }
@@ -804,7 +960,7 @@ private fun EmptyState(loading: Boolean, status: String, onAdd: () -> Unit) {
             Text(if (loading) "…" else "▶", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
         }
         Text(tr(if (loading) "Tuning in…" else "Your TV starts here"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text(status, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
+        Text(bidiIsolate(status), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
         Button(onClick = onAdd, enabled = !loading) { Text(tr("Add playlist & guide")) }
     }
 }
@@ -820,7 +976,7 @@ private fun ChannelLogo(
     if (logo.isNotBlank() && !failed) {
         AsyncImage(
             model = logo,
-            contentDescription = "$name logo",
+            contentDescription = bidiIsolate("$name logo"),
             modifier = modifier,
             contentScale = ContentScale.Fit,
             onState = { state -> if (state is AsyncImagePainter.State.Error) failed = true },
@@ -828,7 +984,7 @@ private fun ChannelLogo(
     } else {
         Box(modifier, contentAlignment = Alignment.Center) {
             Text(
-                if (showNameFallback) name else name.firstOrNull()?.uppercase() ?: "TV",
+                bidiIsolate(if (showNameFallback) name else name.firstOrNull()?.uppercase() ?: "TV"),
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
                 style = if (showNameFallback) MaterialTheme.typography.labelSmall else MaterialTheme.typography.titleLarge,
@@ -872,8 +1028,8 @@ private fun ChannelRow(
                             ChannelLogo(channel.name, logo, Modifier.fillMaxSize().padding(4.dp))
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(channel.name, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(if (channel.group.isBlank()) tr("Uncategorized") else channel.group, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(bidiIsolate(channel.name), Modifier.clickable(onClick = onPlay), fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(if (channel.group.isBlank()) tr("Uncategorized") else bidiIsolate(channel.group), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         IconButton(onClick = onFavourite, modifier = Modifier.size(48.dp)) {
                             Text(if (favourite) "★" else "☆", color = if (favourite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
@@ -887,15 +1043,20 @@ private fun ChannelRow(
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Box(Modifier.size(7.dp).clip(CircleShape).background(if (current != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                Text(current?.title ?: tr("No programme information"), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                                Text(current?.title?.let(::bidiIsolate) ?: tr("No programme information"), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
                                 current?.subtitle?.takeIf(String::isNotBlank)?.let {
-                                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .76f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(bidiIsolate(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .76f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                         }
-                        Text(next?.let { programme ->
-                            listOf("${tr("Next · ")}${programme.title}", programme.subtitle).filter(String::isNotBlank).joinToString(" · ")
-                        } ?: current?.let { "${tr("Until ")}${formatTime(it.end)}" } ?: tr("Guide not available"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (next != null) {
+                            Text("${tr("Next · ")}${bidiIsolate(next.title)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            next.subtitle.takeIf(String::isNotBlank)?.let {
+                                Text(bidiIsolate(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .56f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        } else {
+                            Text(current?.let { "${tr("Until ")}${formatTime(it.end)}" } ?: tr("Guide not available"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                         current?.let {
                             val now = Platform.nowEpochSeconds()
                             val fraction = ((now - it.start).toFloat() / (it.end - it.start).coerceAtLeast(1)).coerceIn(0f, 1f)
@@ -921,8 +1082,8 @@ private fun ChannelRow(
                         ChannelLogo(channel.name, logo, Modifier.fillMaxSize().padding(5.dp))
                     }
                     Column(Modifier.width(145.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(channel.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(if (channel.group.isBlank()) tr("Uncategorized") else channel.group, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(bidiIsolate(channel.name), Modifier.clickable(onClick = onPlay), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(if (channel.group.isBlank()) tr("Uncategorized") else bidiIsolate(channel.group), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Column(
                         Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
@@ -932,15 +1093,20 @@ private fun ChannelRow(
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Box(Modifier.size(7.dp).clip(CircleShape).background(if (current != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                Text(current?.title ?: tr("No programme information"), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                                Text(current?.title?.let(::bidiIsolate) ?: tr("No programme information"), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
                                 current?.subtitle?.takeIf(String::isNotBlank)?.let {
-                                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .76f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(bidiIsolate(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .76f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                         }
-                        Text(next?.let { programme ->
-                            listOf("${tr("Next · ")}${programme.title}", programme.subtitle).filter(String::isNotBlank).joinToString(" · ")
-                        } ?: current?.let { "${tr("Until ")}${formatTime(it.end)}" } ?: tr("Guide not available"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (next != null) {
+                            Text("${tr("Next · ")}${bidiIsolate(next.title)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            next.subtitle.takeIf(String::isNotBlank)?.let {
+                                Text(bidiIsolate(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .56f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        } else {
+                            Text(current?.let { "${tr("Until ")}${formatTime(it.end)}" } ?: tr("Guide not available"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                         current?.let {
                             val now = Platform.nowEpochSeconds()
                             val fraction = ((now - it.start).toFloat() / (it.end - it.start).coerceAtLeast(1)).coerceIn(0f, 1f)
@@ -974,7 +1140,7 @@ private fun SettingsPage(settings: AppSettings, onSettings: (AppSettings) -> Uni
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(tr("TV sources"), fontWeight = FontWeight.SemiBold)
                         Text(
-                            settings.sources.firstOrNull { it.id == settings.activeSourceId }?.name ?: tr("No active source"),
+                            settings.sources.firstOrNull { it.id == settings.activeSourceId }?.name?.let(::bidiIsolate) ?: tr("No active source"),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f),
                             maxLines = 1,
@@ -1029,6 +1195,22 @@ private fun SettingsChoices(settings: AppSettings, onSettings: (AppSettings) -> 
                         Text(tr("Unsafe: disables certificate-chain verification for sources and playback. Keep off unless you trust the server/network."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
                     Switch(checked = settings.allowInsecureTls, onCheckedChange = { onSettings(settings.copy(allowInsecureTls = it)) })
+                }
+            }
+        }
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(tr("EPG auto-refresh"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(tr("Choose how often Mawjic refreshes XMLTV while the app is open. The playlist is not reloaded."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
+                val refreshOptions = listOf(0 to "Off", 30 to "30 min", 60 to "1 hour", 180 to "3 hours", 360 to "6 hours", 720 to "12 hours")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    refreshOptions.forEach { (minutes, label) ->
+                        FilterChip(
+                            selected = settings.epgRefreshIntervalMinutes == minutes,
+                            onClick = { onSettings(settings.copy(epgRefreshIntervalMinutes = minutes)) },
+                            label = { Text(tr(label)) },
+                        )
+                    }
                 }
             }
         }
@@ -1125,8 +1307,8 @@ private fun SourceDialog(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(source.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                                Text(source.playlistSource, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f))
+                                Text(bidiIsolate(source.name), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                                Text(bidiIsolate(source.playlistSource), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f))
                                 if (source.id == activeSourceId) Text(tr("Active"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             }
                             TextButton(
@@ -1155,6 +1337,7 @@ private fun SourceDialog(
                         label = { Text(tr("M3U / M3U8 playlist *")) },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Ltr),
                     )
                     DocumentPickerButton(tr("Browse")) { playlist = it }
                 }
@@ -1165,6 +1348,7 @@ private fun SourceDialog(
                         label = { Text(tr("XMLTV guide (optional)")) },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Ltr),
                     )
                     DocumentPickerButton(tr("Browse")) { xmltv = it }
                 }
@@ -1246,7 +1430,7 @@ private fun ChannelScheduleDialog(
                         ChannelLogo(channel.name, logo, Modifier.fillMaxSize().padding(4.dp))
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(channel.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(bidiIsolate(channel.name), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(tr("Programme schedule"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f))
                     }
                     IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) { Text("×", fontSize = 24.sp) }
@@ -1272,16 +1456,16 @@ private fun ChannelScheduleDialog(
                             ) {
                                 Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.width(104.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                        Text("${formatTime(programme.start)} – ${formatTime(programme.end)}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                        Text(bidiIsolate("${formatTime(programme.start)} – ${formatTime(programme.end)}"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                                         if (isNow) Text(tr("Now"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                     }
                                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                        Text(programme.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        Text(bidiIsolate(programme.title), fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                         programme.subtitle.takeIf(String::isNotBlank)?.let {
-                                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .78f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            Text(bidiIsolate(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .78f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                                         }
                                         programme.episodeNumber.takeIf(String::isNotBlank)?.let {
-                                            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                            Text(bidiIsolate(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                         }
                                     }
                                 }
@@ -1298,14 +1482,14 @@ private fun ChannelScheduleDialog(
 private fun ProgrammeDialog(programme: Programme, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(programme.title) },
+        title = { Text(bidiIsolate(programme.title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (programme.image.isNotBlank()) AsyncImage(programme.image, contentDescription = tr("Programme artwork"), modifier = Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Fit)
-                Text("${formatTime(programme.start)} – ${formatTime(programme.end)}")
+                Text(bidiIsolate("${formatTime(programme.start)} – ${formatTime(programme.end)}"))
                 val episodeDetails = listOf(programme.subtitle, programme.episodeNumber).filter(String::isNotBlank).distinct()
-                if (episodeDetails.isNotEmpty()) Text(episodeDetails.joinToString(" · "), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
-                Text(programme.description.ifBlank { tr("No programme description was provided by the guide.") }, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
+                if (episodeDetails.isNotEmpty()) Text(episodeDetails.joinToString(" · ") { bidiIsolate(it) }, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
+                Text(programme.description.takeIf(String::isNotBlank)?.let(::bidiIsolate) ?: tr("No programme description was provided by the guide."), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Close")) } },
@@ -1320,6 +1504,8 @@ expect @Composable fun PlaybackPane(
     channelLogo: String,
     currentProgrammeTitle: String,
     currentProgrammeSubtitle: String,
+    nextProgrammeTitle: String,
+    nextProgrammeSubtitle: String,
     previousChannel: Channel?,
     nextChannel: Channel?,
     onChannelSelected: (Channel) -> Unit,

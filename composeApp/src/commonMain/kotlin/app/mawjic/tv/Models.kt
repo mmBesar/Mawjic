@@ -229,8 +229,10 @@ expect fun DocumentPickerButton(label: String, onSelected: (String) -> Unit)
 expect fun SystemBarsEffect(backgroundArgb: Long, useDarkIcons: Boolean)
 
 expect object Platform {
+    val isDesktop: Boolean
     fun getPreference(key: String, defaultValue: String): String
     fun setPreference(key: String, value: String)
+    fun setPreferences(values: Map<String, String>)
     fun configureTlsPolicy()
     suspend fun readText(source: String): String
     fun parseM3u(text: String): String
