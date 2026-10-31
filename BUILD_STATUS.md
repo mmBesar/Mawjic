@@ -1,5 +1,13 @@
 # Mawjic build status
 
+## Stage 2.1 — Compose keyboard import correction (2026-10-31; CI rerun required)
+
+- Corrected the Desktop shortcut modifier imports in `composeApp/src/commonMain/kotlin/app/mawjic/tv/App.kt`: `KeyEvent.key` and `KeyEvent.type` are imported as extension properties from `androidx.compose.ui.input.key`, and `Modifier.focusable()` is imported from `androidx.compose.foundation` (the Foundation artifact), not `androidx.compose.ui.focus`.
+- This directly addresses the three shared-source compiler diagnostics reported by hosted CI: unresolved `KeyEvent.type`, unresolved `KeyEvent.key`, and unresolved `Modifier.focusable`. The shortcut handling itself is unchanged.
+- **Verification performed:** `bash scripts/source-sanity.sh`, `python3 scripts/check-localization.py`, `python3 scripts/check-licenses.py` dependency inventory, `git diff --check`, and import/source inspection.
+- **Not verified:** Kotlin/Compose compilation, Android build, Linux Desktop build/package, or runtime shortcuts. The pinned Gradle 8.14.6 distribution is not available in this environment; rerun all three GitHub Actions jobs before considering this correction build-passing.
+
+
 ## Current verification snapshot (2026-10-31 — Stage 2 source update)
 
 - **Latest EPG baseline:** the maintainer reports all GitHub Actions jobs passed after correcting the range-test fixture. The maintainer also confirms the 12-hour guide is faster and the single continuous red current-time line looks correct.
