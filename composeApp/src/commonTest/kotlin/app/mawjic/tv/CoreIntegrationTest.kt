@@ -15,6 +15,17 @@ class CoreIntegrationTest {
     }
 
     @Test
+    fun pageSwipeNavigationFollowsLtrAndRtlOrderAndHonoursBounds() {
+        assertEquals(1, pageSwipeTargetIndex(0, -120f, 84f, isRtl = false, pageCount = 4))
+        assertEquals(1, pageSwipeTargetIndex(0, 120f, 84f, isRtl = true, pageCount = 4))
+        assertEquals(0, pageSwipeTargetIndex(1, 120f, 84f, isRtl = false, pageCount = 4))
+        assertEquals(null, pageSwipeTargetIndex(0, 30f, 84f, isRtl = false, pageCount = 4))
+        assertEquals(null, pageSwipeTargetIndex(0, 120f, 84f, isRtl = false, pageCount = 4))
+        assertEquals(null, pageSwipeTargetIndex(3, -120f, 84f, isRtl = false, pageCount = 4))
+        assertEquals(null, pageSwipeTargetIndex(0, Float.NaN, 84f, isRtl = false, pageCount = 4))
+    }
+
+    @Test
     fun guideTimelineWindowCovers12HoursAndFloorsToHalfHour() {
         val nowEpoch = 27L * 3600L + 20L * 60L
         val range = guideTimelineRange(nowEpoch)

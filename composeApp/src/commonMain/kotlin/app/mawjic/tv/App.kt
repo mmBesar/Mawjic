@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -65,6 +66,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -77,6 +79,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,6 +87,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalDensity
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
@@ -96,6 +100,7 @@ import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.painterResource
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -505,7 +510,31 @@ private fun MainScreen(settings: AppSettings, onSettings: (AppSettings) -> Unit)
             }
             Divider(Modifier.fillMaxHeight().width(1.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = .25f))
             }
-            Column(Modifier.weight(1f).fillMaxHeight().padding(start = if (compactLayout) 12.dp else 24.dp, end = if (compactLayout) 12.dp else 24.dp, top = 12.dp, bottom = 12.dp)) {
+            val swipeThresholdPx = with(LocalDensity.current) { 84.dp.toPx() }
+            val pageSwipeModifier = if (!Platform.isDesktop) {
+                Modifier.pointerInput(page, settings.language, swipeThresholdPx) {
+                    var horizontalDistance = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { horizontalDistance = 0f },
+                        onHorizontalDrag = { _, dragAmount -> horizontalDistance += dragAmount },
+                        onDragEnd = {
+                            pageSwipeTargetIndex(
+                                currentIndex = Page.entries.indexOf(page),
+                                horizontalDistancePx = horizontalDistance,
+                                thresholdPx = swipeThresholdPx,
+                                isRtl = settings.language == "Arabic",
+                                pageCount = Page.entries.size,
+                            )?.let { targetIndex -> page = Page.entries[targetIndex] }
+                        },
+                        onDragCancel = { horizontalDistance = 0f },
+                    )
+                }
+            } else Modifier
+            Column(
+                Modifier.weight(1f).fillMaxHeight()
+                    .padding(start = if (compactLayout) 12.dp else 24.dp, end = if (compactLayout) 12.dp else 24.dp, top = 12.dp, bottom = 12.dp)
+                    .then(pageSwipeModifier),
+            ) {
                 when {
                     page == Page.SETTINGS -> SettingsPage(settings, onSettings, compactLayout, onDone = { page = Page.LIVE }, onManageSources = { showSources = true })
                     else -> {
@@ -689,6 +718,7 @@ private fun GuideTimeline(
 ) {
     val scroll = rememberScrollState()
     val guideListState = rememberLazyListState()
+    val guideCoroutineScope = rememberCoroutineScope()
     val range = guideTimelineRange(nowEpoch)
     val rangeStart = range.startEpoch
     val rangeEnd = range.endEpoch
@@ -744,6 +774,17 @@ private fun GuideTimeline(
                 modifier = Modifier.weight(1f),
             )
             Text("${(zoom * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.width(44.dp))
+            TextButton(
+                onClick = {
+                    val nowOffsetPx = ((nowEpoch - rangeStart).coerceAtLeast(0L).toDouble() / 3600.0 * hourWidthPx).roundToInt()
+                    val viewportPx = scroll.viewportSize
+                    val target = (nowOffsetPx - viewportPx * 0.32f).roundToInt()
+                        .coerceIn(0, scroll.maxValue)
+                    guideCoroutineScope.launch { scroll.animateScrollTo(target) }
+                },
+                contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
+                modifier = Modifier.height(36.dp),
+            ) { Text(tr("Now"), fontWeight = FontWeight.SemiBold) }
         }
         Column(
             Modifier.weight(1f).fillMaxWidth().drawWithContent {

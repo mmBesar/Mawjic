@@ -152,6 +152,8 @@ assert 'keepScreenOn = player.isPlaying' in android_player and 'playerViewRef.ge
 assert 'override fun onIsPlayingChanged(isPlaying: Boolean)' in android_player
 assert 'if (!showOsd)' in android_player and 'delay(5_000)' in android_player
 assert 'playerViewRef.get()?.showController()' in android_player, 'Revealing a hidden OSD must also show Media3 controls'
+assert 'import androidx.compose.foundation.layout.width' in android_player, 'Android player volume/brightness HUD must import Modifier.width'
+assert 'import androidx.compose.foundation.layout.height' in android_player, 'Android player volume/brightness HUD must import Modifier.height'
 # tr() reads Compose state and is @Composable, so resolve track labels before click callbacks.
 assert 'val audioTrackLabel = tr("Audio")' in android_player
 assert 'val subtitlesTrackLabel = tr("Subtitles")' in android_player
@@ -219,6 +221,12 @@ assert 'val isDesktop: Boolean' in models
 assert 'actual val isDesktop: Boolean = true' in desktop_platform
 assert 'actual val isDesktop: Boolean = false' in android_platform
 assert 'bidiIsolationKeepsMixedScriptContentInsideUnicodeIsolates' in common_tests
+assert 'TextDirection.ContentOrRtl' in theme and 'TextDirection.ContentOrLtr' in theme, 'Paragraph direction must use content-aware RTL/LTR fallback for Arabic/Linux bidi'
+assert 'detectHorizontalDragGestures' in app and 'if (!Platform.isDesktop)' in app, 'Android page swipes must be scoped to non-desktop navigation'
+assert 'Text(tr("Now")' in app and 'scroll.animateScrollTo(target)' in app, 'Guide must provide a Now action that scrolls its timeline to the current-time marker'
+assert 'pageSwipeTargetIndex(' in app and 'detectHorizontalDragGestures' in app, 'Android page swipes must use bounded page-index resolution'
+assert 'pageSwipeNavigationFollowsLtrAndRtlOrderAndHonoursBounds' in common_tests, 'Page swipes need LTR/RTL and boundary regression coverage'
+assert 'TextDirection.ContentOrRtl' in theme and 'TextDirection.ContentOrLtr' in theme, 'Dynamic paragraph direction must remain content-aware'
 # EPG freshness, desktop settings responsiveness, navigation and Watch next-show metadata.
 assert 'epgRefreshIntervalMinutes' in theme and 'epgRefreshIntervalMinutes' in common_tests
 assert 'Platform.setPreferences(' in theme and 'actual fun setPreferences(values: Map<String, String>)' in desktop_platform and 'actual fun setPreferences(values: Map<String, String>)' in android_platform

@@ -1,5 +1,16 @@
 # Mawjic build status
 
+## Stage 2.2 — Android HUD imports, desktop bidi, Guide Now, and Android page swipes (2026-10-31; hosted CI pending)
+
+- The maintainer reports Stage 2.1's Linux job passed and the Android job failed in `Playback.android.kt` at the volume/brightness HUD: `Modifier.width(104.dp)` was unresolved. Added the required `androidx.compose.foundation.layout.width` import. The same expression also calls `Modifier.height(5.dp)` without importing `height`, so that import was added at the same time to avoid an immediately-following compile failure.
+- Fixed the Arabic desktop paragraph-direction gap at the typography source: every bundled-font Material text style now uses content-aware direction (`ContentOrRtl` for Arabic, `ContentOrLtr` for English). Strong characters still determine direction per text run; the selected language only supplies the fallback for neutral-leading content. Existing Unicode FSI/PDI source-metadata isolation remains in place. Source URLs explicitly styled LTR remain LTR.
+- Added a localized **Now** button to the Guide zoom row. It smoothly scrolls the horizontal EPG timeline so the current-time marker is visible and returns the timeline from a future-programme position.
+- Added Android-only horizontal swipe navigation across Live TV, Guide, Favourites, and Settings. The swipe direction follows the visible LTR/RTL navigation order. It uses Compose's horizontal gesture arbitration so nested horizontal scrolling controls can retain their own drags; playback stays in its existing dialog/window and its gestures are not rewritten.
+- Added a pure page-swipe index resolver and common regression tests for LTR/RTL direction, below-threshold movement, invalid input, and first/last-page bounds. Added source-sanity checks for the Android `height`/`width` imports, bidi paragraph directions, Guide Now action, and Android page-swipe wiring.
+- **Verification performed:** `bash scripts/source-sanity.sh` (including localisation and dependency inventory), `git diff --check`, and focused source/API inspection. Android Foundation's `detectHorizontalDragGestures`, Compose `ScrollState.animateScrollTo`, and `TextDirection.ContentOrRtl` are established common Compose APIs; source references are cited in the handoff notes.
+- **Not verified:** Kotlin compilation/common unit-test execution, Android APK build, Linux Desktop build/package of this new stage, and actual bidi/Guide-button/swipe behavior on devices. The environment has no installed Gradle executable or cached Gradle 8.14.6 distribution; this stage must be validated by hosted GitHub Actions and then on an Android device. Do not mark Stage 2.2 build-passing until those checks pass.
+
+
 ## Stage 2.1 — Compose keyboard import correction (2026-10-31; CI rerun required)
 
 - Corrected the Desktop shortcut modifier imports in `composeApp/src/commonMain/kotlin/app/mawjic/tv/App.kt`: `KeyEvent.key` and `KeyEvent.type` are imported as extension properties from `androidx.compose.ui.input.key`, and `Modifier.focusable()` is imported from `androidx.compose.foundation` (the Foundation artifact), not `androidx.compose.ui.focus`.

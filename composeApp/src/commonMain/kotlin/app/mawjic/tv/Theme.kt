@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDirection
 import org.jetbrains.compose.resources.Font
 import app.mawjic.tv.generated.resources.Res
 import app.mawjic.tv.generated.resources.noto_naskh_arabic_ui_bold
@@ -47,7 +48,18 @@ internal fun appTypography(language: String): Typography {
     }
     return remember(language) {
         val base = Typography()
-        fun TextStyle.withAppFont() = copy(fontFamily = family)
+        // Compose's default ContentOrLtr paragraph fallback can leave neutral-leading
+        // Arabic metadata aligned as LTR on the desktop JVM. Resolve by content, but
+        // use RTL as the fallback when the selected UI language is Arabic.
+        val paragraphDirection = if (language == "Arabic") {
+            TextDirection.ContentOrRtl
+        } else {
+            TextDirection.ContentOrLtr
+        }
+        fun TextStyle.withAppFont() = copy(
+            fontFamily = family,
+            textDirection = paragraphDirection,
+        )
         base.copy(
             displayLarge = base.displayLarge.withAppFont(),
             displayMedium = base.displayMedium.withAppFont(),
